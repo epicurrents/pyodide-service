@@ -1,0 +1,10 @@
+.env
+.npmrc
+.vscode
+node_modules
+dev/*
+dist/*
+umd/*
+tests/coverage
+
+._*
