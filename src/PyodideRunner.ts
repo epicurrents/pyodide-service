@@ -1,6 +1,6 @@
 /**
  * Pyodide runner.
- * @package    @epicurrents/pyodide-service
+ * @package    epicurrents/pyodide-service
  * @copyright  2024 Sampsa Lohi
  * @license    Apache-2.0
  */
