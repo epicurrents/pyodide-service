@@ -26,10 +26,10 @@ export default class PyodideService extends GenericService implements AssetServi
     protected _scripts = {} as { [name: string]: ScriptState }
 
     constructor () {
-        if (!window.__EPICURRENTS_APPS__[0]) {
+        if (!window.__EPICURRENTS_RUNTIME__) {
             Log.error(`Reference to main application was not found!`, SCOPE)
         }
-        const overrideWorker = window.__EPICURRENTS_APPS__[0]?.state.WORKERS.get('pyodide')
+        const overrideWorker = window.__EPICURRENTS_RUNTIME__?.WORKERS.get('pyodide')
         const worker = overrideWorker ? overrideWorker() : new Worker(
             new URL(
                 /* webpackChunkName: 'pyodide.worker' */
