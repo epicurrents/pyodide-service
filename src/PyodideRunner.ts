@@ -15,7 +15,7 @@ export default class PyodideRunner {
     protected _loadWaiters: (() => void)[] = []
     protected _pyodide: Pyodide | null = null
 
-    constructor () {
+    constructor (extraPackages: string[] = []) {
         this._loadPromise = this.loadPyodideAndPackages()
         this._loadPromise.then(() => {
             // Notify possible waithers that loading is done.

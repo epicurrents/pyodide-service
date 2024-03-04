@@ -14,30 +14,13 @@ importScripts("https://cdn.jsdelivr.net/pyodide/v0.19.1/full/pyodide.js")
 const SCOPE = "PyodideWorker"
 
 async function loadPyodideAndPackages () {
-    // Load main Pyodide.
+    // Load main Pyodide from CDN, but packages locally to avoid throttling.
     (self as any).pyodide = await loadPyodide({
-        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.19.1/full/",
+        indexURL: "/vendor/pyodide/",
     })
     // Load packages that are common to all contexts.
-    await (self as any).pyodide.loadPackage(['numpy', 'scipy'])
-    // Create some dummy object to pass as window and document.
-    const createDummyEl = (...params: unknown[]) => {
-        return {
-            id: 'dummyEl',
-            style: {},
-            appendChild: (...params: unknown[]) => {},
-            createElement: createDummyEl,
-            createTextNode: createDummyEl,
-            getContext: (...params: unknown[]) => {
-                return { draw: () => {}, putImageData: (...params: unknown[]) => {} }
-            },
-            getElementById: (...params: unknown[]) => { return createDummyEl() },
-        }
-    }
-    ;(self as any).document = createDummyEl()
-    ;(self as any).window = {
-        setTimeout: (...params: unknown[]) => { return 1 },
-    }
+    const packages = ['numpy', 'scipy']
+    await (self as any).pyodide.loadPackage(packages)
 }
 // Allow waiting for the loading process to complete.
 let loadingDone = false
@@ -107,7 +90,33 @@ self.onmessage = async (event) => {
             return
         }
         try {
-            const results = await (self as any).pyodide.runPythonAsync(context.code)
+            if (context.simulateDocument) {
+                // Create some dummy object to pass as window and document (only needed for matplotlib).
+                const createDummyEl = (..._params: unknown[]) => {
+                    return {
+                        id: 'dummyEl',
+                        style: {},
+                        appendChild: (..._params: unknown[]) => {},
+                        createElement: createDummyEl,
+                        createTextNode: createDummyEl,
+                        getContext: (..._params: unknown[]) => {
+                            return { draw: () => {}, putImageData: (..._params: unknown[]) => {} }
+                        },
+                        getElementById: (..._params: unknown[]) => { return createDummyEl() },
+                    }
+                }
+                ;(self as any).document = createDummyEl()
+                ;(self as any).window = {
+                    setTimeout: (..._params: unknown[]) => { return 1 },
+                }
+            }
+            const runCode = (self as any).pyodide.runPython(context.code)
+            const results = await runCode
+            // Undo document simulation.
+            if (context.simulateDocument) {
+                ;(self as any).document = undefined
+                ;(self as any).window = undefined
+            }
             self.postMessage({
                 rn: rn,
                 success: true,

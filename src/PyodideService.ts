@@ -6,7 +6,7 @@
  */
 
 import { GenericService } from '@epicurrents/core'
-import { type AssetService } from '@epicurrents/core/dist/types'
+import { type AssetService, type WorkerResponse } from '@epicurrents/core/dist/types'
 import { Log } from 'scoped-ts-log'
 
 const SCOPE = 'PyodideService'
@@ -27,7 +27,7 @@ export default class PyodideService extends GenericService implements AssetServi
 
     constructor () {
         if (!window.__EPICURRENTS_RUNTIME__) {
-            Log.error(`Reference to main application was not found!`, SCOPE)
+            Log.error(`Reference to application runtime was not found!`, SCOPE)
         }
         const overrideWorker = window.__EPICURRENTS_RUNTIME__?.WORKERS.get('pyodide')
         const worker = overrideWorker ? overrideWorker() : new Worker(
@@ -36,10 +36,32 @@ export default class PyodideService extends GenericService implements AssetServi
                 `./pyodide.worker`,
                 import.meta.url
             ),
-            { type: 'module'}
+            { type: 'module' }
         )
         Log.registerWorker(worker)
         super(SCOPE, worker)
+        worker.addEventListener('message', this.handleWorkerResponse.bind(this))
+    }
+
+    handleWorkerResponse (message: WorkerResponse) {
+        const data = message.data
+        if (!data || !data.action) {
+            return false
+        }
+        const commission = this._getCommissionForMessage(message)
+        if (commission) {
+            if (data.action === 'run-code') {
+                if (data.success) {
+                    commission.resolve(data)
+                } else if (commission.reject) {
+                    commission.reject(data.error as string)
+                }
+                return true
+            } else {
+                return super._handleWorkerCommission(message)
+            }
+        }
+        return false
     }
 
     /**
@@ -62,7 +84,10 @@ export default class PyodideService extends GenericService implements AssetServi
     /**
      * Run the provided piece of `code` with the given `parameters`.
      * @param code - Python code as a string.
-     * @param params - Any parameters for the code.
+     * @param params - Parameters for execution passed to the python script.
+     * @remarks
+     * Reserved `params` are:
+     * * `simulateDocument` - Create document and window objects into pyodide's self scope.
      */
     async runCode (code: string, params: { [key: string]: unknown }) {
         const commission = this._commissionWorker(
@@ -77,33 +102,41 @@ export default class PyodideService extends GenericService implements AssetServi
 
     /**
      * Load and run the `script` using the given `parameters`.
-     * @param script - Name of the script.
-     * @param params - Parameters for execution.
+     * @param name - Name of the script.
+     * @param script - Script contents.
+     * @param params - Parameters for execution passed to the python script.
+     * @remarks
+     * Reserved `params` are:
+     * * `simulateDocument` - Create document and window objects into pyodide's self scope.
      */
-    async runScript (script: string, params: { [key: string]: unknown }) {
-        if (script in this._scripts) {
+    async runScript (name: string, script: string, params: { [key: string]: unknown }) {
+        if (name in this._scripts) {
             if (
-                this._scripts[script].state === 'loading' ||
-                this._scripts[script].state === 'loaded'
+                this._scripts[name].state === 'loading' ||
+                this._scripts[name].state === 'loaded'
             ) {
-                Log.info(`Script ${script} is already loading or has been loaded.`, SCOPE)
+                Log.info(`Script ${name} is already loading or has been loaded.`, SCOPE)
                 return {
                     success: true,
                 }
             }
-            this._scripts[script].params = { ...params }
-            this._scripts[script].state = 'loading'
+        }
+        Log.debug(`Loading script ${name}.`, SCOPE)
+        this._scripts[name] = {
+            params: { ...params },
+            state: 'loading',
         }
         const commission = this._commissionWorker(
-            'run-script',
+            'run-code',
             new Map<string, unknown>([
-                ['script', script],
+                ['code', script],
                 ...Object.entries(params)
             ])
         )
         const response = await commission.promise
-        if (script in this._scripts) {
-            this._scripts[script].state = 'loaded'
+        if (name in this._scripts) {
+            Log.debug(`Script ${name} loaded.`, SCOPE)
+            this._scripts[name].state = 'loaded'
         }
         return response
     }
