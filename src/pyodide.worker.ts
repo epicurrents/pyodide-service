@@ -1,22 +1,27 @@
 /**
  * Pyodide worker.
- * @package    epicurrents/core
- * @copyright  2022 Sampsa Lohi
+ * @package    epicurrents/pyodide-service
+ * @copyright  2024 Sampsa Lohi
  * @license    Apache-2.0
+ */
+
+/**
+ * Pyodide is licenced under MPL-2.0.
+ * https://github.com/pyodide/pyodide/
  */
 
 /* eslint-disable */
 
 import { Log } from 'scoped-ts-log'
 
-importScripts("https://cdn.jsdelivr.net/pyodide/v0.19.1/full/pyodide.js")
+importScripts("https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js")
 
 const SCOPE = "PyodideWorker"
 
 async function loadPyodideAndPackages () {
     // Load main Pyodide from CDN, but packages locally to avoid throttling.
     (self as any).pyodide = await loadPyodide({
-        indexURL: "/vendor/pyodide/",
+    //    indexURL: "/vendor/pyodide/0.25.0/",
     })
     // Load packages that are common to all contexts.
     const packages = ['numpy', 'scipy']
