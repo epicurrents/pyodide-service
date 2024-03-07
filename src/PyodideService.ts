@@ -64,6 +64,20 @@ export default class PyodideService extends GenericService implements AssetServi
         return false
     }
 
+    async initialize (config?: { indexURL?: string, packages?: string[] }) {
+        const commission = this._commissionWorker(
+            'initialize',
+            new Map<string, unknown>([
+                ['config', config],
+            ])
+        )
+        const response = await commission.promise
+        if (config?.packages?.length) {
+            this._loadedPackages.push(...config.packages)
+        }
+        return response
+    }
+
     /**
      * Load the given packages into the Python interpreter.
      * @param packages - Array of package names to load.

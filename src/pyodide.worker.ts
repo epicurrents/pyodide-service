@@ -7,7 +7,7 @@
 
 /**
  * Pyodide is licenced under MPL-2.0.
- * https://github.com/pyodide/pyodide/
+ * Source: https://github.com/pyodide/pyodide/
  */
 
 /* eslint-disable */
@@ -18,25 +18,22 @@ importScripts("https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js")
 
 const SCOPE = "PyodideWorker"
 
-async function loadPyodideAndPackages () {
+async function loadPyodideAndPackages (config?: { indexURL?: string, packages?: string[] }) {
     // Load main Pyodide from CDN, but packages locally to avoid throttling.
     (self as any).pyodide = await loadPyodide({
-    //    indexURL: "/vendor/pyodide/0.25.0/",
+        indexURL: config?.indexURL,
     })
     // Load packages that are common to all contexts.
     const packages = ['numpy', 'scipy']
+    if (config?.packages?.length) {
+        packages.push(...config.packages)
+    }
     await (self as any).pyodide.loadPackage(packages)
 }
+let initialized = false
 // Allow waiting for the loading process to complete.
 let loadingDone = false
 const loadWaiters = [] as (() => void)[]
-const pyodideReadyPromise = loadPyodideAndPackages()
-pyodideReadyPromise.then(() => {
-    loadingDone = true
-    for (const resolve of loadWaiters) {
-        resolve()
-    }
-})
 const awaitLoad = () => {
     if (loadingDone) {
         return Promise.resolve()
@@ -48,9 +45,34 @@ const awaitLoad = () => {
 }
 
 self.onmessage = async (event) => {
+    const { rn, action, ...context } = event.data
+    if (action === 'initialize') {
+        initialized = true
+        loadPyodideAndPackages(context.config).then(() => {
+            loadingDone = true
+            for (const resolve of loadWaiters) {
+                resolve()
+            }
+            postMessage({
+                rn: rn,
+                action: 'initialize',
+                success: true,
+            })
+        })
+        return
+    }
+    // Initialize must be called before anything else.
+    if (!initialized) {
+        postMessage({
+            rn: rn,
+            action: action,
+            error: 'Pyodide must me initialized before any other commissions are issued.',
+            success: false,
+        })
+        return
+    }
     // Make sure loading is done.
     await awaitLoad()
-    const { rn, action, ...context } = event.data
     // Bind properties to allow pyodide access to them.
     for (const key of Object.keys(context)) {
         if (key.includes('__proto__')) {
