@@ -2,7 +2,7 @@ const path = require('path')
 const TerserPlugin = require('terser-webpack-plugin')
 require('dotenv').config()
 
-const ASSET_PATH = process.env.ASSET_PATH || '/vendor/pyodide-service/'
+const ASSET_PATH = process.env.ASSET_PATH || '/pyodide-service/'
 
 module.exports = {
     mode: 'production',
