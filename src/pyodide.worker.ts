@@ -66,7 +66,7 @@ self.onmessage = async (event) => {
         postMessage({
             rn: rn,
             action: action,
-            error: 'Pyodide must me initialized before any other commissions are issued.',
+            error: 'Pyodide must be initialized before any other commissions are issued.',
             success: false,
         })
         return
