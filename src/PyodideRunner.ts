@@ -151,6 +151,10 @@ export default class PyodideRunner extends GenericService implements AssetServic
         return response
     }
 
+    /**
+     * This is an experiment for local file system read access.
+     * @param script - Script to execute.
+     */
     async runWithReadAccess (script: string) {
         if (typeof window.showDirectoryPicker !== 'function') {
             Log.error(`File system access not available, cannot open folder.`, SCOPE)
@@ -158,16 +162,16 @@ export default class PyodideRunner extends GenericService implements AssetServic
         }
         try {
             const dirHandle = await window.showDirectoryPicker({ mode: "read" })
-            const nativeFs = await this._pyodide?.mountNativeFS(MOUNT_DIR, dirHandle)
-            this._pyodide?.runPythonAsync(`
-                import os
-                print(os.listdir('/mount_dir'))
-            `)
+            // This is an experiment for possible local file access implementation.
         } catch (e: any) {
             Log.error("Unable to read directory.", SCOPE, e)
         }
     }
 
+    /**
+     * This is an experiment for local file system read/write access.
+     * @param script - Script to execute.
+     */
     async runWithReadWriteAccess (script: string) {
         if (typeof window.showDirectoryPicker !== 'function') {
             Log.error(`File system access not available, cannot open folder.`, SCOPE)
@@ -175,7 +179,7 @@ export default class PyodideRunner extends GenericService implements AssetServic
         }
         try {
             const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" })
-            console.log(dirHandle)
+            // This is an experiment for possible local file access implementation.
         } catch (e: any) {
             Log.error("Unable to read and write directory.", SCOPE, e)
         }
