@@ -6,8 +6,9 @@
  */
 
 declare type Pyodide = {
-    runPythonAsync (code: string): Promise<string>
     loadPackage (packages: string | string[]): Promise<void>
+    mountNativeFS (path: string, handle: FileSystemDirectoryHandle): Promise<void>
+    runPythonAsync (code: string): Promise<string>
 }
 
 declare module 'pyodide/pyodide.js' {

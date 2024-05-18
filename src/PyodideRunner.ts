@@ -5,18 +5,44 @@
  * @license    Apache-2.0
  */
 
+/**
+ * Pyodide is licenced under MPL-2.0.
+ * Source: https://github.com/pyodide/pyodide/
+ */
+
+import { GenericService } from '@epicurrents/core'
+import { type AssetService } from '@epicurrents/core/dist/types'
 import { loadPyodide } from 'pyodide/pyodide.js'
 import { Log } from 'scoped-ts-log'
 
 const SCOPE = 'PyodideRunner'
+const MOUNT_DIR = '/mount_dir'
 
-export default class PyodideRunner {
+type LoadingState = 'error' | 'loaded' | 'loading' | 'not_loaded'
+type ScriptState = {
+    /**
+     * Variable names and values to use in the python script.
+     */
+    params: { [key: string]: unknown }
+    /**
+     * Script loading state.
+     */
+    state: LoadingState
+}
+
+export default class PyodideRunner extends GenericService implements AssetService {
     protected _loadPromise: Promise<void> | null
     protected _loadWaiters: (() => void)[] = []
     protected _pyodide: Pyodide | null = null
+    /**
+     * Some scripts are run only once and kept in memory.
+     * This property lists names of scripts that should not be run multiple times and their loading state.
+     */
+    protected _scripts = {} as { [name: string]: ScriptState }
 
-    constructor (extraPackages: string[] = []) {
-        this._loadPromise = this.loadPyodideAndPackages()
+    constructor (config?: { indexURL?: string, packages?: string[] }) {
+        super(SCOPE)
+        this._loadPromise = this.initialize(config)
         this._loadPromise.then(() => {
             // Notify possible waithers that loading is done.
             for (const resolve of this._loadWaiters) {
@@ -26,7 +52,7 @@ export default class PyodideRunner {
         })
     }
 
-    get loadPromise () {
+    get initialLoad () {
         if (!this._loadPromise) {
             return Promise.resolve()
         }
@@ -36,22 +62,46 @@ export default class PyodideRunner {
         return promise
     }
 
-    async loadPyodideAndPackages () {
+    async initialize (config?: { indexURL?: string, packages?: string[] }) {
         // Load main Pyodide
         this._pyodide = await loadPyodide({
-            indexURL: "https://cdn.jsdelivr.net/pyodide/v0.19.1/full/",
+            indexURL: config?.indexURL || "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/",
         })
         // Load packages that are common to all contexts.
-        await this._pyodide?.loadPackage(['numpy'])
+        await this._pyodide?.loadPackage(['numpy', 'scipy'].concat(...(config?.packages || [])))
     }
 
+    /**
+     * Load the given packages into the Python interpreter.
+     * @param packages - Array of package names to load.
+     */
     async loadPackages (packages: string[]) {
-        await this.loadPromise
+        await this.initialLoad
         await this._pyodide?.loadPackage(packages)
     }
 
-    async runCode (code: string, params?: { [key: string]: unknown }) {
-        await this.loadPromise
+    /**
+     * Run the provided piece of `code` with the given `parameters`.
+     * @param code - Python code as a string.
+     * @param params - Parameters for execution passed to the python script.
+     * @param scriptDeps - Scripts that this core depends on.
+     */
+    async runCode (code: string, params?: { [key: string]: unknown }, scriptDeps: string[] = []) {
+        await this.initialLoad
+        const invalidScriptStates = ['not_loaded', 'error']
+        for (const dep of scriptDeps) {
+            if (this._scripts[dep]) {
+                if (invalidScriptStates.includes(this._scripts[dep].state)) {
+                    Log.error(`Cannot run code, dependency script has not loaded yet.`, SCOPE)
+                    return null
+                } else if (this._scripts[dep].state === 'loading') {
+                    if (!(await this.awaitAction(`script:${dep}`))) {
+                        Log.error(`Cannot run code, dependency script loading failed.`, SCOPE)
+                        return null
+                    }
+                }
+            }
+        }
         if (params) {
             for (const key in params) {
                 // Check for prototype injection attempt.
@@ -65,5 +115,69 @@ export default class PyodideRunner {
         }
         const results = await this._pyodide?.runPythonAsync(code)
         return results
+    }
+
+    /**
+     * Load and run the `script` using the given `parameters`.
+     * @param name - Name of the script.
+     * @param script - Script contents.
+     * @param params - Parameters for execution passed to the python script.
+     */
+    async runScript (name: string, script: string, params: { [key: string]: unknown }) {
+        if (name in this._scripts) {
+            if (
+                this._scripts[name].state === 'loading' ||
+                this._scripts[name].state === 'loaded'
+            ) {
+                Log.info(`Script ${name} is already loading or has been loaded.`, SCOPE)
+                return {
+                    success: true,
+                }
+            }
+        }
+        Log.debug(`Loading script ${name}.`, SCOPE)
+        this._initWaiters(`script:${name}`)
+        const newScript = {
+            params: { ...params },
+            state: 'loading',
+        } as ScriptState
+        this._scripts[name] = newScript
+        const response = await this.runCode(script, params)
+        if (name in this._scripts) {
+            Log.debug(`Script ${name} loaded.`, SCOPE)
+            this._scripts[name].state = 'loaded'
+            this._notifyWaiters(`script:${name}`, true)
+        }
+        return response
+    }
+
+    async runWithReadAccess (script: string) {
+        if (typeof window.showDirectoryPicker !== 'function') {
+            Log.error(`File system access not available, cannot open folder.`, SCOPE)
+            return
+        }
+        try {
+            const dirHandle = await window.showDirectoryPicker({ mode: "read" })
+            const nativeFs = await this._pyodide?.mountNativeFS(MOUNT_DIR, dirHandle)
+            this._pyodide?.runPythonAsync(`
+                import os
+                print(os.listdir('/mount_dir'))
+            `)
+        } catch (e: any) {
+            Log.error("Unable to read directory.", SCOPE, e)
+        }
+    }
+
+    async runWithReadWriteAccess (script: string) {
+        if (typeof window.showDirectoryPicker !== 'function') {
+            Log.error(`File system access not available, cannot open folder.`, SCOPE)
+            return
+        }
+        try {
+            const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" })
+            console.log(dirHandle)
+        } catch (e: any) {
+            Log.error("Unable to read and write directory.", SCOPE, e)
+        }
     }
 }

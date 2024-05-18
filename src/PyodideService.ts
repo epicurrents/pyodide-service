@@ -13,7 +13,13 @@ const SCOPE = 'PyodideService'
 
 type LoadingState = 'error' | 'loaded' | 'loading' | 'not_loaded'
 type ScriptState = {
+    /**
+     * Variable names and values to use in the python script.
+     */
     params: { [key: string]: unknown }
+    /**
+     * Script loading state.
+     */
     state: LoadingState
 }
 export default class PyodideService extends GenericService implements AssetService {
@@ -41,6 +47,15 @@ export default class PyodideService extends GenericService implements AssetServi
         Log.registerWorker(worker)
         super(SCOPE, worker)
         worker.addEventListener('message', this.handleWorkerResponse.bind(this))
+        // Set up a map for initializxation waiters.
+        this._initWaiters('init')
+    }
+
+    get initialLoad () {
+        if (!this._waiters.get('init')) {
+            return Promise.resolve(true)
+        }
+        return this.awaitAction('init')
     }
 
     handleWorkerResponse (message: WorkerResponse) {
@@ -75,6 +90,8 @@ export default class PyodideService extends GenericService implements AssetServi
         if (config?.packages?.length) {
             this._loadedPackages.push(...config.packages)
         }
+        // Notify possible waiters that loading is done.
+        this._notifyWaiters('init', true)
         return response
     }
 
@@ -99,11 +116,30 @@ export default class PyodideService extends GenericService implements AssetServi
      * Run the provided piece of `code` with the given `parameters`.
      * @param code - Python code as a string.
      * @param params - Parameters for execution passed to the python script.
+     * @param scriptDeps - Scripts that this core depends on.
      * @remarks
      * Reserved `params` are:
      * * `simulateDocument` - Create document and window objects into pyodide's self scope.
      */
-    async runCode (code: string, params: { [key: string]: unknown }) {
+    async runCode (code: string, params: { [key: string]: unknown }, scriptDeps: string[] = []) {
+        await this.initialLoad
+        const invalidScriptStates = ['not_loaded', 'error']
+        for (const dep of scriptDeps) {
+            if (this._scripts[dep]) {
+                if (invalidScriptStates.includes(this._scripts[dep].state)) {
+                    Log.error(`Cannot run code, dependency script has not loaded yet.`, SCOPE)
+                    return { success: false }
+                } else if (this._scripts[dep].state === 'loading') {
+                    Log.debug(`Waiting for dependency script '${dep}' to load before executing code.`, SCOPE)
+                    if (!(await this.awaitAction(`script:${dep}`))) {
+                        Log.error(`Cannot run code, dependency script loading failed.`, SCOPE)
+                        return { success: false }
+                    } else {
+                        Log.debug(`Script ${dep} loaded, executing code.`, SCOPE)
+                    }
+                }
+            }
+        }
         const commission = this._commissionWorker(
             'run-code',
             new Map<string, unknown>([
@@ -129,17 +165,19 @@ export default class PyodideService extends GenericService implements AssetServi
                 this._scripts[name].state === 'loading' ||
                 this._scripts[name].state === 'loaded'
             ) {
-                Log.info(`Script ${name} is already loading or has been loaded.`, SCOPE)
+                Log.debug(`Script ${name} is already loading or has been loaded.`, SCOPE)
                 return {
                     success: true,
                 }
             }
         }
         Log.debug(`Loading script ${name}.`, SCOPE)
-        this._scripts[name] = {
+        this._initWaiters(`script:${name}`)
+        const newScript = {
             params: { ...params },
             state: 'loading',
-        }
+        } as ScriptState
+        this._scripts[name] = newScript
         const commission = this._commissionWorker(
             'run-code',
             new Map<string, unknown>([
@@ -151,6 +189,7 @@ export default class PyodideService extends GenericService implements AssetServi
         if (name in this._scripts) {
             Log.debug(`Script ${name} loaded.`, SCOPE)
             this._scripts[name].state = 'loaded'
+            this._notifyWaiters(`script:${name}`, true)
         }
         return response
     }

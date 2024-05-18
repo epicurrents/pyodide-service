@@ -14,6 +14,12 @@ declare global {
          * Runtime state manager of the initiated application.
          */
         __EPICURRENTS_RUNTIME__: import('@epicurrents/core/dist/types/application').StateManager
+        /**
+         * Experimental FileSystemAPI directory picker.
+         * @param options - { mode: 'read' | 'readwrite' }
+         * @returns Promise of a FileSystemDirectoryHandle.
+         */
+        showDirectoryPicker: (options?: { mode: 'read' | 'readwrite' }) => Promise<FileSystemDirectoryHandle>
     }
 }
 export {} // Guarantees the global declaration to work.
