@@ -32,10 +32,10 @@ export default class PyodideService extends GenericService implements AssetServi
     protected _scripts = {} as { [name: string]: ScriptState }
 
     constructor () {
-        if (!window.__EPICURRENTS_RUNTIME__) {
-            Log.error(`Reference to application runtime was not found!`, SCOPE)
+        if (!window.__EPICURRENTS__?.RUNTIME) {
+            Log.error(`Reference to core application runtime was not found.`, SCOPE)
         }
-        const overrideWorker = window.__EPICURRENTS_RUNTIME__?.WORKERS.get('pyodide')
+        const overrideWorker = window.__EPICURRENTS__?.RUNTIME?.WORKERS.get('pyodide')
         const worker = overrideWorker ? overrideWorker() : new Worker(
             new URL(
                 /* webpackChunkName: 'pyodide.worker' */
