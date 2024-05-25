@@ -1,7 +1,7 @@
 {
   "name": "@epicurrents/pyodide-service",
   "version": "0.1.0",
-  "description": "EpiCurrents Pyodide service",
+  "description": "Epicurrents Pyodide service",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
