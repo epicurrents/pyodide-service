@@ -1,5 +1,5 @@
 /**
- * Pyodide runner.
+ * Pyodide runner. This class extends service but performs its actions in the main thread instead of using workers.
  * @package    epicurrents/pyodide-service
  * @copyright  2024 Sampsa Lohi
  * @license    Apache-2.0
