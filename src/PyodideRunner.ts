@@ -16,7 +16,7 @@ import { loadPyodide } from 'pyodide/pyodide.js'
 import { Log } from 'scoped-ts-log'
 
 const SCOPE = 'PyodideRunner'
-const MOUNT_DIR = '/mount_dir'
+// const MOUNT_DIR = '/mount_dir' // This would be used as mount root in the WASM virtual filesystem.
 
 type LoadingState = 'error' | 'loaded' | 'loading' | 'not_loaded'
 type ScriptState = {
@@ -161,10 +161,11 @@ export default class PyodideRunner extends GenericService implements AssetServic
             return
         }
         try {
-            const dirHandle = await window.showDirectoryPicker({ mode: "read" })
             // This is an experiment for possible local file access implementation.
-        } catch (e: any) {
-            Log.error("Unable to read directory.", SCOPE, e)
+            const dirHandle = await window.showDirectoryPicker({ mode: "read" })
+            console.log(dirHandle.name, script)
+        } catch (e: unknown) {
+            Log.error("Unable to read directory.", SCOPE, e as Error)
         }
     }
 
@@ -178,10 +179,11 @@ export default class PyodideRunner extends GenericService implements AssetServic
             return
         }
         try {
-            const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" })
             // This is an experiment for possible local file access implementation.
-        } catch (e: any) {
-            Log.error("Unable to read and write directory.", SCOPE, e)
+            const dirHandle = await window.showDirectoryPicker({ mode: "readwrite" })
+            console.log(dirHandle.name, script)
+        } catch (e: unknown) {
+            Log.error("Unable to read and write directory.", SCOPE, e as Error)
         }
     }
 }
