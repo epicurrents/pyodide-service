@@ -16,6 +16,10 @@ module.exports = {
                 exclude: '/node_modules/',
                 use: 'ts-loader',
             },
+            {
+              resourceQuery: /\.py$/,
+              type: 'asset/source',
+            },
         ],
     },
     optimization: {

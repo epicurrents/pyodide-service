@@ -1,4 +1,5 @@
 .env
+.venv
 .npmrc
 .vscode
 node_modules
