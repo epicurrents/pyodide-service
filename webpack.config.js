@@ -17,8 +17,8 @@ module.exports = {
                 use: 'ts-loader',
             },
             {
-              resourceQuery: /\.py$/,
-              type: 'asset/source',
+                test: /\.py$/,
+                type: 'asset/source',
             },
         ],
     },
