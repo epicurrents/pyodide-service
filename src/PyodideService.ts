@@ -9,6 +9,11 @@ import { GenericService } from '@epicurrents/core'
 import { type AssetService, type WorkerResponse } from '@epicurrents/core/dist/types'
 import { Log } from 'scoped-ts-log'
 
+import biosignal from './scripts/biosignal.py'
+const DEFAULT_SCRIPTS = new Map([
+    ['biosignal', biosignal],
+])
+
 const SCOPE = 'PyodideService'
 
 type LoadingState = 'error' | 'loaded' | 'loading' | 'not_loaded'
@@ -93,6 +98,27 @@ export default class PyodideService extends GenericService implements AssetServi
         // Notify possible waiters that loading is done.
         this._notifyWaiters('init', true)
         return response
+    }
+
+    /**
+     * Load a default script by the given `name`.
+     * @param name - Name of the script.
+     * @returns Promise that resolves with true on success, false otherwise.
+     */
+    async loadDefaultScript (name: string) {
+        const script = DEFAULT_SCRIPTS.get(name)
+        if (script) {
+            try {
+                await this.runScript(name, script, {})
+            } catch (e: unknown) {
+                Log.error(`Failed to load default script '${name}'.`, SCOPE, e as Error)
+                return false
+            }
+            return true
+        } else {
+            Log.warn(`Default script ${name} was not found.`, SCOPE)
+        }
+        return false
     }
 
     /**

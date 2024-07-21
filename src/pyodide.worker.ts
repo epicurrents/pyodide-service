@@ -159,4 +159,11 @@ self.onmessage = async (event) => {
             })
         }
     }
+    // Unbind properties.
+    for (const key of Object.keys(context)) {
+        if (key.includes('__proto__')) {
+            continue
+        }
+        (self as any)[key] = undefined
+    }
 }
