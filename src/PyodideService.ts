@@ -43,8 +43,6 @@ export default class PyodideService extends GenericService implements PythonInte
         Log.registerWorker(worker)
         super(SCOPE, worker)
         worker.addEventListener('message', this.handleWorkerResponse.bind(this))
-        // Set up a map for initializxation waiters.
-        this._initWaiters('init')
     }
 
     handleWorkerResponse (message: WorkerResponse) {
@@ -126,13 +124,16 @@ export default class PyodideService extends GenericService implements PythonInte
     async runScript (name: string, script: string, params: { [key: string]: unknown }) {
         if (name in this._scripts) {
             if (
-                this._scripts[name].state === 'loading' ||
                 this._scripts[name].state === 'loaded'
             ) {
-                Log.debug(`Script ${name} is already loading or has been loaded.`, SCOPE)
+                Log.debug(`Script '${name}' has already been loaded.`, SCOPE)
                 return {
                     success: true,
                 }
+            } else if (
+                this._scripts[name].state === 'loading'
+            ) {
+                return this.awaitAction(`script:${name}`) as Promise<RunCodeResult>
             }
         }
         Log.debug(`Loading script ${name}.`, SCOPE)
@@ -196,6 +197,8 @@ export default class PyodideService extends GenericService implements PythonInte
     }
 
     async setupWorker (config?: { indexURL?: string, packages?: string[] }) {
+        // Set up a map for initialization waiters.
+        this._initWaiters('setup-worker')
         const commission = this._commissionWorker(
             'setup-worker',
             new Map<string, unknown>([
@@ -207,7 +210,7 @@ export default class PyodideService extends GenericService implements PythonInte
             this._loadedPackages.push(...config.packages)
         }
         // Notify possible waiters that loading is done.
-        this._notifyWaiters('setup', true)
+        this._notifyWaiters('setup-worker', true)
         return response
     }
 }
