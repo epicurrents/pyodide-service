@@ -10,6 +10,7 @@ import { type AssetService, type WorkerResponse } from '@epicurrents/core/dist/t
 import { Log } from 'scoped-ts-log'
 
 import biosignal from './scripts/biosignal.py'
+import { RunCodeResult, SetupScriptResult } from '#types'
 const DEFAULT_SCRIPTS = new Map([
     ['biosignal', biosignal],
 ])
@@ -173,7 +174,7 @@ export default class PyodideService extends GenericService implements AssetServi
                 ...Object.entries(params)
             ])
         )
-        return commission.promise
+        return commission.promise as Promise<RunCodeResult>
     }
 
     /**
@@ -211,11 +212,57 @@ export default class PyodideService extends GenericService implements AssetServi
                 ...Object.entries(params)
             ])
         )
-        const response = await commission.promise
+        const response = await commission.promise as RunCodeResult
         if (name in this._scripts) {
             Log.debug(`Script ${name} loaded.`, SCOPE)
             this._scripts[name].state = 'loaded'
             this._notifyWaiters(`script:${name}`, true)
+        }
+        return response
+    }
+
+    /**
+     * Set up generic biosignal scripts in Pyodide. If SharedArrayBuffer is supported, input signal buffers from the
+     * recording's raw data mutex will be set up in Pyodide as well.
+     * @param signals - Possible signal data as Float32Arrays.
+     * @param dataPos - Starting position of signal data in the data array (default 0).
+     * @param dataFields - Possible data fields contained in the signal array as { name: position }.
+     * @param filterPadding - Amount of seconds to add as padding when filterin signals.
+     * @return Promise that resolves with SetupScriptResult.
+     */
+    async setupBiosignalRecording (
+        signals?: Float32Array[],
+        dataPos = 0,
+        dataFields = [] as unknown[],
+        filterPadding = 0,
+    ): Promise<SetupScriptResult> {
+        if (!window.__EPICURRENTS__?.RUNTIME) {
+            Log.error(`Reference to core application runtime was not found.`, SCOPE)
+            return { success: false }
+        }
+        if (this._scripts['biosignal'].state === 'error') {
+            Log.error(`Cannot set up biosignal recording, biosignal script setup failed.`, SCOPE)
+            return { success: false }
+        }
+        if (this._scripts['biosignal'].state === 'not_loaded') {
+            Log.debug(`Loading biosignals scripts before setting up recording.`, SCOPE)
+            if (!(await this.loadDefaultScript('biosignal'))) {
+                Log.error(`Cannot set up biosignal recording, biosignal script setup failed.`, SCOPE)
+                return { success: false }
+            }
+        }
+        const response = await this.runCode(
+            `biosignal_setup()`,
+            {
+                data_pos: dataPos,
+                data_fields: dataFields,
+                filter_padding: filterPadding,
+                signals: signals,
+            },
+            ['biosignal']
+        )
+        if (!response.success) {
+            Log.error(`Failed to set biosignal recording in pyodide.`, SCOPE)
         }
         return response
     }

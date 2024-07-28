@@ -138,18 +138,28 @@ self.onmessage = async (event) => {
                 }
             }
             const runCode = (self as any).pyodide.runPython(context.code)
-            const results = await runCode
+            const result = await runCode
             // Undo document simulation.
             if (context.simulateDocument) {
                 ;(self as any).document = undefined
                 ;(self as any).window = undefined
             }
+            // For more complex data types, Pyodide returns proxies which are prone to memory leaks.
+            const resultIsProxy = !!result && typeof result === 'object'
             self.postMessage({
                 rn: rn,
                 success: true,
                 action: 'run-code',
-                result: results,
+                result: resultIsProxy 
+                        // Convert Map (Pyodide's default conversion type for dict) into Object.
+                        // Setting create_proxies to false prevents the creation no nested proxies.
+                        ? result.toJs({ dict_converter : Object.fromEntries, create_proxies : false })
+                        : result,
             })
+            if (resultIsProxy) {
+                // Destroy the proxy to remove the reference to contained data.
+                result.destroy()
+            } 
         } catch (error) {
             self.postMessage({
                 rn: rn,
