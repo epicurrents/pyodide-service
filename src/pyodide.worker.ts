@@ -46,29 +46,38 @@ const awaitLoad = () => {
 
 self.onmessage = async (event) => {
     const { rn, action, ...context } = event.data
-    if (action === 'initialize') {
+    /** Return a success response to the service. */
+    const returnSuccess = (results?: { [key: string]: unknown }) => {
+        postMessage({
+            rn: rn,
+            action: action,
+            success: true,
+            ...results
+        })
+    }
+    /** Return a failure response to the service. */
+    const returnFailure = (error: string | string[]) => {
+        postMessage({
+            rn: rn,
+            action: action,
+            success: false,
+            error: error,
+        })
+    }
+    if (action === 'setup-worker') {
         initialized = true
         loadPyodideAndPackages(context.config).then(() => {
             loadingDone = true
             for (const resolve of loadWaiters) {
                 resolve()
             }
-            postMessage({
-                rn: rn,
-                action: 'initialize',
-                success: true,
-            })
+            returnSuccess()
         })
         return
     }
     // Initialize must be called before anything else.
     if (!initialized) {
-        postMessage({
-            rn: rn,
-            action: action,
-            error: 'Pyodide must be initialized before any other commissions are issued.',
-            success: false,
-        })
+        returnFailure('Pyodide must be initialized before any other commissions are issued.')
         return
     }
     // Make sure loading is done.
@@ -83,37 +92,18 @@ self.onmessage = async (event) => {
     }
     if (action === 'load-packages') {
         if (!context.packages) {
-            postMessage({
-                rn: rn,
-                action: 'load-packages',
-                error: 'Load-packages requires a non-empty array of packages to load.',
-                success: false,
-            })
+            returnFailure('Load-packages requires a non-empty array of packages to load.')
             return
         }
         try {
             await (self as any).pyodide.loadPackage(context.packages)
-            self.postMessage({
-                rn: rn,
-                success: true,
-                action: 'load-packages',
-            })
+            returnSuccess()
         } catch (error) {
-            self.postMessage({
-                rn: rn,
-                success: false,
-                action: 'load-packages',
-                error: error,
-            })
+            returnFailure(error as string)
         }
     } else if (action === 'run-code') {
         if (!context.code) {
-            postMessage({
-                rn: rn,
-                action: 'run-code',
-                error: 'Run-code requires a non-empty code string to run.',
-                success: false,
-            })
+            returnFailure('Run-code requires a non-empty code string to run.')
             return
         }
         try {
@@ -146,10 +136,7 @@ self.onmessage = async (event) => {
             }
             // For more complex data types, Pyodide returns proxies which are prone to memory leaks.
             const resultIsProxy = !!result && typeof result === 'object'
-            self.postMessage({
-                rn: rn,
-                success: true,
-                action: 'run-code',
+            returnSuccess({
                 result: resultIsProxy 
                         // Convert Map (Pyodide's default conversion type for dict) into Object.
                         // Setting create_proxies to false prevents the creation no nested proxies.
@@ -161,12 +148,7 @@ self.onmessage = async (event) => {
                 result.destroy()
             } 
         } catch (error) {
-            self.postMessage({
-                rn: rn,
-                success: false,
-                action: 'run-code',
-                error: error,
-            })
+            returnFailure(error as string)
         }
     }
     // Unbind properties.

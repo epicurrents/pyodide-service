@@ -6,29 +6,19 @@
  */
 
 import { GenericService } from '@epicurrents/core'
-import { type AssetService, type WorkerResponse } from '@epicurrents/core/dist/types'
+import { type WorkerResponse } from '@epicurrents/core/dist/types'
 import { Log } from 'scoped-ts-log'
 
 import biosignal from './scripts/biosignal.py'
-import { RunCodeResult, SetupScriptResult } from '#types'
+import { PythonInterpreterService, RunCodeResult, ScriptState } from '#types'
+import { SetupWorkerResponse } from '@epicurrents/core/dist/types/service'
 const DEFAULT_SCRIPTS = new Map([
     ['biosignal', biosignal],
 ])
 
 const SCOPE = 'PyodideService'
 
-type LoadingState = 'error' | 'loaded' | 'loading' | 'not_loaded'
-type ScriptState = {
-    /**
-     * Variable names and values to use in the python script.
-     */
-    params: { [key: string]: unknown }
-    /**
-     * Script loading state.
-     */
-    state: LoadingState
-}
-export default class PyodideService extends GenericService implements AssetService {
+export default class PyodideService extends GenericService implements PythonInterpreterService {
     protected _callbacks = [] as ((...results: unknown[]) => unknown)[]
     protected _loadedPackages = [] as string[]
     /**
@@ -57,13 +47,6 @@ export default class PyodideService extends GenericService implements AssetServi
         this._initWaiters('init')
     }
 
-    get initialLoad () {
-        if (!this._waiters.get('init')) {
-            return Promise.resolve(true)
-        }
-        return this.awaitAction('init')
-    }
-
     handleWorkerResponse (message: WorkerResponse) {
         const data = message.data
         if (!data || !data.action) {
@@ -85,47 +68,19 @@ export default class PyodideService extends GenericService implements AssetServi
         return false
     }
 
-    async initialize (config?: { indexURL?: string, packages?: string[] }) {
-        const commission = this._commissionWorker(
-            'initialize',
-            new Map<string, unknown>([
-                ['config', config],
-            ])
-        )
-        const response = await commission.promise
-        if (config?.packages?.length) {
-            this._loadedPackages.push(...config.packages)
-        }
-        // Notify possible waiters that loading is done.
-        this._notifyWaiters('init', true)
-        return response
-    }
-
-    /**
-     * Load a default script by the given `name`.
-     * @param name - Name of the script.
-     * @returns Promise that resolves with true on success, false otherwise.
-     */
     async loadDefaultScript (name: string) {
         const script = DEFAULT_SCRIPTS.get(name)
         if (script) {
             try {
                 await this.runScript(name, script, {})
             } catch (e: unknown) {
-                Log.error(`Failed to load default script '${name}'.`, SCOPE, e as Error)
-                return false
+                return { success: false, error: e as string }
             }
-            return true
-        } else {
-            Log.warn(`Default script ${name} was not found.`, SCOPE)
+            return { success: true }
         }
-        return false
+        return { success: false, error: `Default script '${name}' was not found.` }
     }
 
-    /**
-     * Load the given packages into the Python interpreter.
-     * @param packages - Array of package names to load.
-     */
     async loadPackages (packages: string[]) {
         packages = packages.filter(pkg => (this._loadedPackages.indexOf(pkg) === -1))
         const commission = this._commissionWorker(
@@ -136,20 +91,11 @@ export default class PyodideService extends GenericService implements AssetServi
         )
         const response = await commission.promise
         this._loadedPackages.push(...packages)
-        return response
+        return response as boolean
     }
 
-    /**
-     * Run the provided piece of `code` with the given `parameters`.
-     * @param code - Python code as a string.
-     * @param params - Parameters for execution passed to the python script.
-     * @param scriptDeps - Scripts that this core depends on.
-     * @remarks
-     * Reserved `params` are:
-     * * `simulateDocument` - Create document and window objects into pyodide's self scope.
-     */
     async runCode (code: string, params: { [key: string]: unknown }, scriptDeps: string[] = []) {
-        await this.initialLoad
+        await this.initialSetup
         const invalidScriptStates = ['not_loaded', 'error']
         for (const dep of scriptDeps) {
             if (this._scripts[dep]) {
@@ -177,15 +123,6 @@ export default class PyodideService extends GenericService implements AssetServi
         return commission.promise as Promise<RunCodeResult>
     }
 
-    /**
-     * Load and run the `script` using the given `parameters`.
-     * @param name - Name of the script.
-     * @param script - Script contents.
-     * @param params - Parameters for execution passed to the python script.
-     * @remarks
-     * Reserved `params` are:
-     * * `simulateDocument` - Create document and window objects into pyodide's self scope.
-     */
     async runScript (name: string, script: string, params: { [key: string]: unknown }) {
         if (name in this._scripts) {
             if (
@@ -221,21 +158,12 @@ export default class PyodideService extends GenericService implements AssetServi
         return response
     }
 
-    /**
-     * Set up generic biosignal scripts in Pyodide. If SharedArrayBuffer is supported, input signal buffers from the
-     * recording's raw data mutex will be set up in Pyodide as well.
-     * @param signals - Possible signal data as Float32Arrays.
-     * @param dataPos - Starting position of signal data in the data array (default 0).
-     * @param dataFields - Possible data fields contained in the signal array as { name: position }.
-     * @param filterPadding - Amount of seconds to add as padding when filterin signals.
-     * @return Promise that resolves with SetupScriptResult.
-     */
     async setupBiosignalRecording (
         signals?: Float32Array[],
         dataPos = 0,
         dataFields = [] as unknown[],
         filterPadding = 0,
-    ): Promise<SetupScriptResult> {
+    ) {
         if (!window.__EPICURRENTS__?.RUNTIME) {
             Log.error(`Reference to core application runtime was not found.`, SCOPE)
             return { success: false }
@@ -264,6 +192,22 @@ export default class PyodideService extends GenericService implements AssetServi
         if (!response.success) {
             Log.error(`Failed to set biosignal recording in pyodide.`, SCOPE)
         }
+        return response
+    }
+
+    async setupWorker (config?: { indexURL?: string, packages?: string[] }) {
+        const commission = this._commissionWorker(
+            'setup-worker',
+            new Map<string, unknown>([
+                ['config', config],
+            ])
+        )
+        const response = await commission.promise as SetupWorkerResponse
+        if (config?.packages?.length) {
+            this._loadedPackages.push(...config.packages)
+        }
+        // Notify possible waiters that loading is done.
+        this._notifyWaiters('setup', true)
         return response
     }
 }
