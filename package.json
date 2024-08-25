@@ -9,11 +9,12 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    }
+    },
+    "./components": "./dist/components/index.js",
+    "./types": "./dist/types/index.d.ts"
   },
   "imports": {
-    "#root/*": "./dist/*",
-    "#*": "./dist/src/*"
+    "#*": "./dist/*"
   },
   "files": [
     "dist/*",

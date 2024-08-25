@@ -6,8 +6,9 @@
  */
 
 import { GenericService } from '@epicurrents/core'
-import { type WorkerResponse } from '@epicurrents/core/dist/types'
+import { SetupMutexResponse, type WorkerResponse } from '@epicurrents/core/dist/types'
 import { Log } from 'scoped-ts-log'
+import { MutexExportProperties } from 'asymmetric-io-mutex'
 
 import biosignal from './scripts/biosignal.py'
 import { PythonInterpreterService, RunCodeResult, ScriptState } from '#types'
@@ -121,7 +122,7 @@ export default class PyodideService extends GenericService implements PythonInte
         return commission.promise as Promise<RunCodeResult>
     }
 
-    async runScript (name: string, script: string, params: { [key: string]: unknown }) {
+    async runScript (name: string, script: string, params: { [key: string]: unknown }, scriptDeps: string[] = []) {
         if (name in this._scripts) {
             if (
                 this._scripts[name].state === 'loaded'
@@ -143,14 +144,7 @@ export default class PyodideService extends GenericService implements PythonInte
             state: 'loading',
         } as ScriptState
         this._scripts[name] = newScript
-        const commission = this._commissionWorker(
-            'run-code',
-            new Map<string, unknown>([
-                ['code', script],
-                ...Object.entries(params)
-            ])
-        )
-        const response = await commission.promise as RunCodeResult
+        const response = await this.runCode(script, params, scriptDeps)
         if (name in this._scripts) {
             Log.debug(`Script ${name} loaded.`, SCOPE)
             this._scripts[name].state = 'loaded'
@@ -159,40 +153,33 @@ export default class PyodideService extends GenericService implements PythonInte
         return response
     }
 
-    async setupBiosignalRecording (
-        signals?: Float32Array[],
-        dataPos = 0,
-        dataFields = [] as unknown[],
-        filterPadding = 0,
+    async setInputMutex (
+        input: MutexExportProperties,
+        dataDuration: number,
+        recordingDuration: number,
+        bufferStart = 0,
     ) {
-        if (!window.__EPICURRENTS__?.RUNTIME) {
-            Log.error(`Reference to core application runtime was not found.`, SCOPE)
-            return { success: false }
-        }
         if (this._scripts['biosignal'].state === 'error') {
-            Log.error(`Cannot set up biosignal recording, biosignal script setup failed.`, SCOPE)
+            Log.error(`Cannot set input mutex, biosignal script setup failed.`, SCOPE)
             return { success: false }
         }
         if (this._scripts['biosignal'].state === 'not_loaded') {
             Log.debug(`Loading biosignals scripts before setting up recording.`, SCOPE)
             if (!(await this.loadDefaultScript('biosignal'))) {
-                Log.error(`Cannot set up biosignal recording, biosignal script setup failed.`, SCOPE)
+                Log.error(`Cannot set input mutex, biosignal script setup failed.`, SCOPE)
                 return { success: false }
             }
         }
-        const response = await this.runCode(
-            `biosignal_setup()`,
-            {
-                data_pos: dataPos,
-                data_fields: dataFields,
-                filter_padding: filterPadding,
-                signals: signals,
-            },
-            ['biosignal']
+        const commission = this._commissionWorker(
+            'setup-input-mutex',
+            new Map<string, unknown>([
+                ['bufferStart', bufferStart],
+                ['dataDuration', dataDuration],
+                ['input', input],
+                ['recordingDuration', recordingDuration],
+            ])
         )
-        if (!response.success) {
-            Log.error(`Failed to set biosignal recording in pyodide.`, SCOPE)
-        }
+        const response = await commission.promise as SetupMutexResponse
         return response
     }
 

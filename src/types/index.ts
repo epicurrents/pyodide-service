@@ -1,9 +1,10 @@
-import { AssetService, SafeObject } from '@epicurrents/core/dist/types'
+import { AppSettings, AssetService, ConfigMapChannels, SafeObject, SetupChannel, WorkerMessage } from '@epicurrents/core/dist/types'
 import {
     BiosignalFilterParams,
     BiosignalMontage,
     BiosignalMontageChannel,
 } from './biosignal'
+import { MutexExportProperties } from 'asymmetric-io-mutex'
 
 export {
     BiosignalFilterParams,
@@ -47,20 +48,38 @@ export interface PythonInterpreterService extends Omit<
      * * `simulateDocument` - Create document and window objects into pyodide's self scope.
      */
     runScript (name: string, script: string, params: { [key: string]: unknown }): Promise<RunCodeResult>
-    /**
-     * Set up generic biosignal scripts in Pyodide. If SharedArrayBuffer is supported, input signal buffers from the
-     * recording's raw data mutex will be set up in Pyodide as well.
-     * @param signals - Possible signal data as Float32Arrays.
-     * @param dataPos - Starting position of signal data in the data array (default 0).
-     * @param dataFields - Possible data fields contained in the signal array as { name: position }.
-     * @param filterPadding - Amount of seconds to add as padding when filterin signals.
-     * @return Promise that resolves with SetupScriptResult.
-     */
-    setupBiosignalRecording (
-        signals?: Float32Array[], dataPos?: number, dataFields?: unknown[], filterPadding?: 0
-    ): Promise<SetupScriptResult>
 }
-
+export type PythonWorkerCommission = {
+    'load-packages': WorkerMessage['data'] & {
+        packages: string[]
+    }
+    'run-code': WorkerMessage['data'] & {
+        code: string
+    }
+    'set-input-mutex': WorkerMessage['data'] & {
+        bufferStart: number
+        config: ConfigMapChannels
+        dataDuration: number
+        input: MutexExportProperties
+        montage: string
+        recordingDuration: number
+        setupChannels: SetupChannel[]
+    }
+    'setup-montage': WorkerMessage['data'] & {
+        config: ConfigMapChannels
+        montage: string
+        namespace: string
+        settings: AppSettings
+        setupChannels: SetupChannel[]
+    }
+    'setup-worker':  WorkerMessage['data'] & {
+        config?: {
+            indexURL?: string
+            packages?: string[]
+        }
+    }
+}
+export type PythonWorkerCommissionAction = keyof PythonWorkerCommission
 /**
  * Code execution result from Pyodide.
  */

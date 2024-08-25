@@ -5,6 +5,8 @@
  * @license    Apache-2.0
  */
 
+import { BiosignalFilters, SignalDataReader, SignalPart } from '@epicurrents/core/dist/types'
+
 /**
  * An object containing parameters for a Butterworth filter.
  */
@@ -23,6 +25,12 @@ export type BiosignalFilterParams = {
      * - a single float for the rest.
      */
     Wn: number | [number, number]
+}
+
+export type PyodideSignalPart = SignalPart & {
+    /** Signal indices of data gaps as [`start`, `end`] */
+    dataGaps: number[][]
+    filters: BiosignalFilters
 }
 
 /**
@@ -48,4 +56,7 @@ export type BiosignalMontageChannel = {
     reference: number[]
     /** Sampling rate of all the input signals and the derived signal. */
     sampling_rate: number
+}
+
+export interface PythonSignalDataReader extends SignalDataReader {
 }
