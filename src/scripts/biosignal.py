@@ -108,7 +108,6 @@ def biosignal_calculate_signals ():
             'success': False,
             'error': "Cannot calculate signals, input has not been set."
         }
-    #try:
     biosignal_update_input()
     # Cache common ref values (speeds up average reference calculations).
     common_ref = {}
@@ -148,7 +147,11 @@ def biosignal_calculate_signals ():
         sig_act = np.pad(act[start_pos:end_pos], (pad_start, pad_end), 'constant')
         # Insert possible data gaps.
         for gap in chan['data_gaps']:
-            sig_act = np.concatenate((sig_act[:gap[0]], np.zeros(gap[1] - gap[0], dtype='f'), sig_act[gap[1]:]))
+            sig_act = np.concatenate((
+                sig_act[:gap[0]],
+                np.zeros(gap[1] - gap[0], dtype='f'),
+                sig_act[gap[0]:]
+            ))
         # Use common reference if possible to save computation time.
         if chan['common_ref'] and chan['type'] in common_ref:
             sig_ref = common_ref[chan['type']]
@@ -165,15 +168,20 @@ def biosignal_calculate_signals ():
                 for ref_ch in chan['reference']:
                     ref_chans.append(
                         np.pad(
-                            input_sigs[ref_ch],
+                            input_sigs[ref_ch][start_pos:end_pos],
                             (pad_start, pad_end),
                             'constant'
                         )
                     )
                 sig_ref = np.mean(ref_chans, axis=0)
-            # Insert possible data gaps.
-            for gap in chan['data_gaps']:
-                sig_ref = np.concatenate((sig_ref[:gap[0]], np.zeros(gap[1] - gap[0], dtype='f'), sig_ref[gap[1]:]))
+            if len(chan['reference']) > 0:
+                # Insert possible data gaps.
+                for gap in chan['data_gaps']:
+                    sig_ref = np.concatenate((
+                        sig_ref[:gap[0]],
+                        np.zeros(gap[1] - gap[0], dtype='f'),
+                        sig_ref[gap[0]:]
+                    ))
             # Save this if montage uses common reference.
             if chan['common_ref']:
                 common_ref[chan['type']] = sig_ref
@@ -227,20 +235,16 @@ def biosignal_calculate_signals ():
         for gap in reversed(chan['data_gaps']):
             gap_start = gap[0]
             gap_end = gap[1]
-            if chan['filter_len'] > 0:
-                # Only remove the gap part that is within actual signal range (not padding).
-                gap_start = max(min(gap_start, len(sig) - chan['filter_len']), chan['filter_len'])
-                gap_end = max(min(gap_end, len(sig) - chan['filter_len']), chan['filter_len'])
             if (gap_start == gap_end):
                 continue
             sig = np.delete(sig, np.s_[gap_start:gap_end])
-        # Fit the signal part into available output buffer by removing extra elements from the end.
-        if len(sig) > len(output[idx]) + 2*chan['filter_len']:
-            end_pos = -1*(len(sig) - len(output[idx]) - 2*chan['filter_len'])
-            sig = sig[:end_pos]
         # Remove possible filter paddings from start and end.
         if chan['filter_len'] > 0:
-            sig = sig[chan['filter_len']:-chan['filter_len']]
+            sig = sig[chan['trim_start']:chan['trim_end']]
+        # Fit the signal part into available output buffer by removing extra elements from the end.
+        if len(sig) > len(output[idx]):
+            end_pos = -1*(len(sig) - len(output[idx]))
+            sig = sig[:end_pos]
         # Filtering breaks contiguity, so make sure the result can be assigned.
         output[idx].assign(np.ascontiguousarray(sig, dtype='f'))
     return {
@@ -252,164 +256,6 @@ def biosignal_calculate_signals ():
     #        'success': False,
     #        'error': ['Failed to compute signals:', str(e)]
     #    }
-
-retry_times = 10
-
-def biosignal_compute_signals ():
-    """
-    Compute signals from the `input` using the currently active `montage`.
-    Computed signals are set to `output` as a list.
-
-    Parameters
-    ----------
-    Parameters required to be present from JS side:
-
-    range : float[]
-        Starting index and ending index of the signal from input.
-
-    Returns
-    -------
-    { 'success': bool, 'error': str / str[] (if an error occurred) }
-    """
-    global retry_times
-    from js import range as sig_range, channels
-    input = biosignal['input']
-    montage = biosignal['montage']
-    output = biosignal['output']
-    if input is None or len(input) == 0:
-        return {
-            'success': False,
-            'error': "Cannot compute signals, input has not been set."
-        }
-    if output is None or len(output) == 0:
-        return {
-            'success': False,
-            'error': "Cannot compute signals, output has not been set."
-        }
-    if montage is None:
-        return {
-            'success': False,
-            'error': "Cannot compute signals, active montage has not been set."
-        }
-    if len(channels) != len(output):
-        return {
-            'success': False,
-            'error': "Cannot compute signals, requested channels and output have different lengths."
-        }
-    try:
-        out_idx = 0
-        for idx, chan in enumerate(montage):
-            if idx not in channels:
-                continue
-            if out_idx == len(output):
-                break
-            act = input[chan['active']]
-            out = channels[out_idx]['data']
-            sig_fs = act[biosignal['data_fields']['sampling_rate']]
-            start_pos = biosignal['data_pos'] + round(sig_fs*sig_range[0])
-            if act[biosignal['data_fields']['updated_start']] > start_pos or act[biosignal['data_fields']['updated_start']] == biosignal['empty_field']:
-                # Signals have not been loaded yet.
-                print('Update starting position is ' + str(act[biosignal['data_fields']['updated_start']]))
-                return {
-                    'success': True,
-                }
-            # This is how the array slice is calculated on JS side and it is important that they match.
-            end_pos = start_pos + len(out)
-            if act[biosignal['data_fields']['updated_end']] < end_pos:
-                print('Update ending position is ' + str(act[biosignal['data_fields']['updated_end']]))
-                # Same as above.
-                return {
-                    'success': True,
-                }
-            if retry_times < 10:
-                retry_times = 10
-            pad_end = 0
-            # Check that the input has enough data to fill the requested output buffer.
-            if len(act) < end_pos:
-                pad_end = end_pos - len(act)
-                end_pos = len(act)
-            # Add filter paddings, if needed.
-            filt_start_samples = 0
-            filt_start_zeroes = 0
-            filt_end_samples = 0
-            filt_end_zeroes = 0
-            # TODO: Check that some filter is actually != 0.
-            apply_filters = biosignal['filters']['padding'] > 0 and chan['filters']
-            if apply_filters:
-                filt_samples = round(biosignal['filters']['padding']*sig_fs)
-                if (start_pos > biosignal['data_pos'] + filt_samples):
-                    filt_start_samples = filt_samples
-                else:
-                    filt_start_samples = start_pos - biosignal['data_pos']
-                    filt_start_zeroes = filt_samples - filt_start_samples
-                if len(act) >= end_pos + filt_samples:
-                    filt_end_samples = filt_samples
-                else:
-                    filt_end_samples = len(act) - end_pos
-                    filt_end_zeroes = filt_samples - filt_end_samples
-                start_pos = start_pos - filt_start_samples
-                end_pos = end_pos + filt_end_samples
-            sig = np.pad(act[start_pos:end_pos], (filt_start_zeroes, filt_end_zeroes), 'constant')
-            ref = np.zeros(len(sig), dtype='f')
-            ref_chans = list()
-            if len(chan['reference']) == 1:
-                ref = np.pad(
-                    input[chan['reference'][0]][start_pos:end_pos],
-                    (filt_start_zeroes, filt_end_zeroes),
-                    'constant'
-                )
-            elif len(chan['reference']) > 1:
-                for ref_ch in chan['reference']:
-                    ref_chans.append(
-                        np.pad(
-                            input[ref_ch][start_pos:end_pos],
-                            (filt_start_zeroes, filt_end_zeroes),
-                            'constant'
-                        )
-                    )
-                ref = np.mean(ref_chans, axis=0)
-            filters = None
-            if chan['filters']:
-                filters = {
-                    'highpass': None,
-                    'lowpass': None,
-                    'notch': None,
-                }
-                f = biosignal['filters']
-                if chan['filters']['highpass']:
-                    filters['highpass'] = {
-                        'N': f['highpass']['N'] if f['highpass'] is not None else None,
-                        'Wn': chan['filters']['highpass']
-                    }
-                if chan['filters']['lowpass']:
-                    filters['lowpass'] = {
-                        'N': f['lowpass']['N'] if f['lowpass'] is not None else None,
-                        'Wn': chan['filters']['lowpass']
-                    }
-                if chan['filters']['notch']:
-                    filters['notch'] = {
-                        'N': f['notch']['N'] if f['notch'] is not None else None,
-                        'Wn': chan['filters']['notch']
-                    }
-            filtered = biosignal_filter_signal(sig - ref, chan['sampling_rate'], filters)
-            if not filtered['success']:
-                return {
-                    'success': False,
-                    'error': ["Cannot compute signals, filtering failed:", filtered['error']]
-                }
-            # Remove possible filters.
-            if apply_filters:
-                filt_start_total = filt_start_samples + filt_start_zeroes
-                filt_end_total = filt_end_samples + filt_end_zeroes
-                filtered['value'] = filtered['value'][filt_start_total:-filt_end_total]
-            out.assign(np.pad(filtered['value'], (0, pad_end), 'constant'))
-            out_idx += 1
-        return { 'success': True }
-    except Exception as e:
-        return {
-            'success': False,
-            'error': ['Failed to compute signals:', str(e)]
-        }
 
 def biosignal_filter_signal (sig, fs, filters = None):
     """

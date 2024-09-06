@@ -93,9 +93,9 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
         // Get the input signals
         const padding = this._settings.filterPaddingSeconds || 0
         // Check for possible gaps in this range.
-        const filtStart = Math.max(cacheStart - padding, 0)
-        const filtEnd = Math.min(cacheEnd + padding, this._totalDataLength)
-        const dataGaps = this.getDataGaps([filtStart, filtEnd], true)
+        const filterRangeStart = Math.max(cacheStart - padding, 0)
+        const filterRangeEnd = Math.min(cacheEnd + padding, this._totalDataLength)
+        const dataGaps = this.getDataGaps([filterRangeStart, filterRangeEnd], true)
         channel_loop:
         for (let i=0; i<channels.length; i++) {
             const chan = channels[i]
@@ -111,16 +111,6 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
                 outputSignals.push(new Float32Array())
                 continue
             }
-            // Get filter padding for the channel.
-            const {
-                filterLen, filterStart, filterEnd,
-            } = getFilterPadding(
-                [cacheStart, cacheEnd] || [],
-                maxSamples,
-                chan,
-                this._settings,
-                this._filters
-            )
             // Check if whole range is just data gap.
             for (const gap of dataGaps) {
                 const gapStartRecTime = this._cacheTimeToRecordingTime(gap.start)
@@ -130,24 +120,63 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
                     continue channel_loop
                 }
             }
+            // Get filter padding for the channel.
+            const {
+                filterLen,
+                filterStart, filterEnd,
+                rangeStart, rangeEnd,
+            } = getFilterPadding(
+                [cacheStart, cacheEnd] || [],
+                maxSamples,
+                chan,
+                this._settings,
+                this._filters
+            )
+            // Range of the filter padded part without data gaps.
+            const filterRange = filterEnd - filterStart
+            // The total range of the filter padded part inluding gaps.
+            const totalRange = Math.ceil((end - start)*chan.samplingRate) + 2*filterLen
+            let dataStart = filterStart
+            let dataEnd = filterEnd
             // Calculate signal indices (relative to the retrieved data part) for data gaps.
             const gapIdxs = [] as number[][]
             for (const gap of dataGaps) {
-                const gapStart = Math.round((gap.start - filterStart)*chan.samplingRate)
+                const gapStart = Math.round(gap.start*chan.samplingRate) - filterStart
                 const gapLen = Math.round(gap.duration*chan.samplingRate)
-                if (gapStart > filterEnd) {
+                if (gapStart >= totalRange) {
                     break
-                } else if (gapStart + gapLen < filterStart) {
+                } else if (gapStart + gapLen <= 0) {
                     continue
                 }
-                // Apply a maximum of filter padding length of gap.
-                const gapEnd = Math.min(gapStart + gapLen, filterEnd)
-                gapIdxs.push([gapStart, gapEnd])
+                // Apply a maximum of padded signal part length of gap.
+                const startPos = Math.max(gapStart, 0)
+                const endPos = Math.min(gapStart + gapLen, totalRange)
+                if (filterLen) {
+                    // Adjust data (=padding) starting and ending positions, if gap is withing filter padding range.
+                    if (startPos >= 0 && startPos < filterLen) {
+                        const corr = Math.min(endPos, filterLen) - startPos
+                        dataStart += corr
+                    } else if (gap.start < start) {
+                        // If a data gap crosses or is adjacent to the requested range start, we cannot determine its
+                        // position by cache coordinates; we need to compare actual gap and range start times.
+                        const relStart = Math.max(gap.start - start, -padding)
+                        const maxDur = Math.min(gap.duration, padding)
+                        if (relStart <= 0 && maxDur >= -relStart) {
+                            const corr = Math.round(-relStart*chan.samplingRate)
+                            dataStart += corr
+                        }
+                    } else if (startPos >= rangeEnd - filterStart && startPos < filterRange) {
+                        dataEnd -= Math.min(endPos, filterRange) - startPos
+                    }
+                }
+                gapIdxs.push([startPos, endPos])
             }
             // Adjust start and end to cached signal range.
             const cacheStartPos = Math.round(inputRangeStart*chan.samplingRate)
-            const relStart = filterStart - cacheStartPos
-            const relEnd = filterEnd - cacheStartPos
+            const relStart = dataStart - cacheStartPos
+            const relEnd = dataEnd - cacheStartPos
+            // The amount of signal data points that have to be removed from the start of the filter-padded signal.
+            const trimStart = rangeStart - dataStart
             // We will pass all the information required to construct the channel signal to the Pyodide script.
             Object.assign(sigProps, {
                 active: chan.active,
@@ -176,12 +205,15 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
                 },
                 reference: [...chan.reference],
                 start: relStart,
+                trim_end: rangeEnd - rangeStart + trimStart,
+                trim_start: trimStart,
+                type: chan.type,
             })
             montageChannels.push(sigProps)
             outputSignals.push(
-                new Float32Array(
-                    Math.floor((cacheEnd - cacheStart)*chan.samplingRate)
-                )
+                // Set an appropariate size for the response signal.
+                // This will be used as an output buffer for the Python script to store the signals in.
+                new Float32Array(rangeEnd - rangeStart)
             )
         }
         const calculateSigs = await this._runCode(
