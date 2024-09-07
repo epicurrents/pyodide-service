@@ -12,7 +12,7 @@ import {
     safeObjectFrom,
 } from '@epicurrents/core/dist/util'
 import { 
-    BiosignalFilters,
+    type BiosignalFilters,
     type CommonBiosignalSettings,
     type ConfigChannelFilter,
     type ConfigMapChannels,
@@ -28,15 +28,18 @@ const SCOPE = "MontageProcesser"
 
 export default class PyodideMontageProcesser extends MontageProcesser implements PythonSignalDataReader {
     protected _activeMontage = ''
-    protected _montageSetups = {} as {
-        [montage: string]: ConfigMapChannels
-    }
+    protected _montages = new Map<string, MontageChannel[]>()
     protected _runCode: RunPythonCode
 
     constructor (runCode: RunPythonCode, settings: CommonBiosignalSettings) {
         super(settings)
         this._runCode = runCode
     }
+
+    get activeMontage () {
+        return this._activeMontage
+    }
+    
     /**
      * Get montage signals for the given part.
      * @param start - Part start (in seconds, included).
@@ -318,8 +321,9 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
         if (this._activeMontage === montage) {
             return true
         }
-        if (Object.keys(this._montageSetups).includes(montage)) {
-            this.mapChannels(this._montageSetups[montage])
+        const montageChannels = this._montages.get(montage)
+        if (montageChannels) {
+            this._channels = montageChannels
             this._activeMontage = montage
             return true
         }
@@ -327,11 +331,8 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
     }
     setupChannels(montage: string, config: ConfigMapChannels, setupChannels: SetupChannel[]): void {
         super.setupChannels(montage, config, setupChannels)
+        this._montages.set(montage, [...this._channels])
         this._activeMontage = montage
-        if (!Object.keys(this._montageSetups).includes(montage)) {
-            // Save new setup properties.
-            this._montageSetups[montage] = { ...config }
-        }
     }
     /**
      * Update Pyodide input signals arrays to the content of the shared array buffer from the input mutex.

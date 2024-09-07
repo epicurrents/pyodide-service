@@ -143,12 +143,16 @@ export class PyodideWorker extends MontageWorker {
             },
             this._montage !== null
         )
-        if (!data) {
+        if (!data || !this._montage) {
             return this._failure(msgData)
         }
         // Check that the correct montage is active, if it is given.
-        if (data.montage && !this._montage?.setMontage(data.montage)) {
-            return this._failure(msgData, `Given montage ${data.montage} has not been set up.`)
+        if (data.montage && this._montage.activeMontage !== data.montage) {
+            if (!this._montage.setMontage(data.montage)) {
+                return this._failure(msgData, `Given montage ${data.montage} has not been set up.`)
+            } else {
+                this._name = data.montage
+            }
         }
         return super.getSignals(msgData)
     }
@@ -223,6 +227,35 @@ export class PyodideWorker extends MontageWorker {
             return this._failure(msgData, response.error)
         } else {
             return this._success(msgData, { result: response.result })
+        }
+    }
+
+    async setFilters (msgData: WorkerMessage['data']) {
+        const data = validateCommissionProps(
+            msgData as MontageWorkerCommission['set-filters'],
+            {
+                name: 'String',
+            },
+            this._montage !== null
+        )
+        if (!data || !this._montage) {
+            return this._failure(msgData)
+        }
+        if (this._montage.activeMontage === data.name) {
+            return super.setFilters(msgData)
+        } else {
+            // We need to set the right channels to update with the new filters.
+            const actMontage = this._montage.activeMontage
+            this._montage.setMontage(data.name)
+            this._name = data.name
+            const success = await super.setFilters(msgData)
+            this._montage.setMontage(actMontage)
+            this._name = actMontage
+            if (success) {
+                return this._success(msgData)
+            } else {
+                return this._failure(msgData)
+            }
         }
     }
 

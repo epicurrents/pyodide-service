@@ -59,4 +59,6 @@ export type BiosignalMontageChannel = {
 }
 
 export interface PythonSignalDataReader extends SignalDataReader {
+    /** Name of the currently active montage. */
+    readonly activeMontage: string
 }
