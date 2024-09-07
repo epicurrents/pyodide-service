@@ -11,7 +11,11 @@
  */
 
 import { GenericService } from '@epicurrents/core'
-import { ScriptState, type PythonInterpreterService } from '#types'
+import {
+    type PythonInterpreterService,
+    type ScriptState,
+    type UpdateInputSignalsResponse,
+} from '#types'
 import { loadPyodide } from 'pyodide/pyodide.js'
 import { Log } from 'scoped-ts-log'
 
@@ -214,5 +218,12 @@ export default class PyodideRunner extends GenericService implements PythonInter
             success: false,
             error: `Not yet implemented.`
         }
+    }
+    
+    async updateInputSignals () {
+        await this.initialSetup
+        const commission = this._commissionWorker('update-input-signals')
+        const response = await commission.promise as UpdateInputSignalsResponse
+        return response
     }
 }

@@ -6,13 +6,18 @@
  */
 
 import { GenericService } from '@epicurrents/core'
-import { SetupMutexResponse, type WorkerResponse } from '@epicurrents/core/dist/types'
+import { type SetupMutexResponse, type WorkerResponse } from '@epicurrents/core/dist/types'
 import { Log } from 'scoped-ts-log'
-import { MutexExportProperties } from 'asymmetric-io-mutex'
+import { type MutexExportProperties } from 'asymmetric-io-mutex'
 
 import biosignal from './scripts/biosignal.py'
-import { PythonInterpreterService, RunCodeResult, ScriptState } from '#types'
-import { SetupWorkerResponse } from '@epicurrents/core/dist/types/service'
+import {
+    type PythonInterpreterService,
+    type RunCodeResult,
+    type ScriptState,
+    type UpdateInputSignalsResponse,
+} from '#types'
+import { type SetupWorkerResponse } from '@epicurrents/core/dist/types/service'
 const DEFAULT_SCRIPTS = new Map([
     ['biosignal', biosignal],
 ])
@@ -198,6 +203,13 @@ export default class PyodideService extends GenericService implements PythonInte
         }
         // Notify possible waiters that loading is done.
         this._notifyWaiters('setup-worker', true)
+        return response
+    }
+    
+    async updateInputSignals () {
+        await this.initialSetup
+        const commission = this._commissionWorker('update-input-signals')
+        const response = await commission.promise as UpdateInputSignalsResponse
         return response
     }
 }

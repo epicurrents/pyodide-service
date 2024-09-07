@@ -4,7 +4,6 @@ Biosignal processing functions.
 
 import numpy as np
 from scipy import signal
-from time import sleep
 
 biosignal = {
     'available_montages': dict(),
@@ -28,6 +27,7 @@ biosignal = {
     'montage': None,
     'output': None,
 }
+
 """ 
 Global variables used in these methods.
 - `available_montages`: Dictionary of available montages with the montage name as key and list of channels as value.
@@ -93,8 +93,6 @@ def biosignal_calculate_signals ():
         - `start` (int): Starting index (included) of the signal data in the input buffer, including filter padding.
             In case of a negative index, that amount of zeroes is added to the start of the signal as padding
         - `type` (str): Type of the signal.
-    is_common_ref : boolean
-        
 
     Returns
     -------
@@ -108,154 +106,31 @@ def biosignal_calculate_signals ():
             'success': False,
             'error': "Cannot calculate signals, input has not been set."
         }
-    biosignal_update_input()
-    # Cache common ref values (speeds up average reference calculations).
-    common_ref = {}
-    # Cache filter coefficients by sampling rate and filter frequency.
-    hp_coeffs = {}
-    lp_coeffs = {}
-    notch_coeffs = {}
+    # We need to extract the channel properties from these Proxies before they are automatically destroyed.
+    py_channels = [None]*len(channels)
     for idx, channel in enumerate(channels):
-        chan = channel.to_py()
-        if 'active' not in chan:
-            # Empty channel.
+        py_channels[idx] = channel.to_py()
+    signals = biosignal_get_signals(py_channels)
+    for idx, sig in enumerate(signals):
+        if sig is None:
             continue
-        act = input_sigs[chan['active']]
-        act_len = len(act) - biosignal['data_pos']
-        sig_fs = act[biosignal['data_fields']['sampling_rate']]
-        # Store possibly needed pad amounts for range that exceeds imput signal range.
-        pad_start = 0
-        if chan['start'] < 0:
-            pad_start = -1*chan['start']
-        pad_end = 0
-        if chan['end'] > act_len:
-            pad_end = chan['end'] - act_len
-        start_pos = biosignal['data_pos'] + chan['start'] + pad_start
-        if act[biosignal['data_fields']['updated_start']] > start_pos or act[biosignal['data_fields']['updated_start']] == biosignal['empty_field']:
-            # Signals have not been loaded yet.
-            return {
-                'success': False,
-                'error': "Requested signals have not been loaded yet."
-            }
-        end_pos = biosignal['data_pos'] + chan['end'] - pad_end
-        if act[biosignal['data_fields']['updated_end']] < act_len and act[biosignal['data_fields']['updated_end']] < end_pos:
-            return {
-                'success': False,
-                'error': "Requested signals have not been loaded yet."
-            }
-        # Calculate the channel derivation.
-        sig_act = np.pad(act[start_pos:end_pos], (pad_start, pad_end), 'constant')
-        # Insert possible data gaps.
-        for gap in chan['data_gaps']:
-            sig_act = np.concatenate((
-                sig_act[:gap[0]],
-                np.zeros(gap[1] - gap[0], dtype='f'),
-                sig_act[gap[0]:]
-            ))
-        # Use common reference if possible to save computation time.
-        if chan['common_ref'] and chan['type'] in common_ref:
-            sig_ref = common_ref[chan['type']]
-        else:
-            sig_ref = np.zeros(len(sig_act), dtype='f')
-            ref_chans = list()
-            if len(chan['reference']) == 1:
-                sig_ref = np.pad(
-                    input_sigs[chan['reference'][0]][start_pos:end_pos],
-                    (pad_start, pad_end),
-                    'constant'
-                )
-            elif len(chan['reference']) > 1:
-                for ref_ch in chan['reference']:
-                    ref_chans.append(
-                        np.pad(
-                            input_sigs[ref_ch][start_pos:end_pos],
-                            (pad_start, pad_end),
-                            'constant'
-                        )
-                    )
-                sig_ref = np.mean(ref_chans, axis=0)
-            if len(chan['reference']) > 0:
-                # Insert possible data gaps.
-                for gap in chan['data_gaps']:
-                    sig_ref = np.concatenate((
-                        sig_ref[:gap[0]],
-                        np.zeros(gap[1] - gap[0], dtype='f'),
-                        sig_ref[gap[0]:]
-                    ))
-            # Save this if montage uses common reference.
-            if chan['common_ref']:
-                common_ref[chan['type']] = sig_ref
-        sig = sig_act - sig_ref
-        # Check if we should filter this signal.
-        filt_hp = None
-        filt_lp = None
-        filt_notch = None
-        if chan['filters'] is not None:
-            # Use default or individual filters as needed.
-            # None means use default, 0 means do not filter.
-            if chan['filters']['highpass']:
-                filt_key = (sig_fs, chan['filters']['highpass'])
-                if filt_key in hp_coeffs:
-                    filt_hp = hp_coeffs[filt_key]
-                else:
-                    filt_hp = biosignal_get_filter_coefficients(
-                        'highpass', chan['filters']['highpass'], sig_fs
-                    )
-                    hp_coeffs[filt_key] = filt_hp
-            # Default filters are not used at the moment.
-            #elif biosignal['filters']['highpass'] is not None:
-            #    filt_hp = biosignal_get_filter_coefficients(
-            #        'highpass', biosignal['filters']['highpass']['Wn'], sig_fs
-            #    )
-            if chan['filters']['lowpass']:
-                filt_key = (sig_fs, chan['filters']['lowpass'])
-                if filt_key in lp_coeffs:
-                    filt_lp = lp_coeffs[filt_key]
-                else:
-                    filt_lp = biosignal_get_filter_coefficients(
-                        'lowpass', chan['filters']['lowpass'], sig_fs
-                    )
-                    lp_coeffs[filt_key] = filt_lp
-            if chan['filters']['notch']:
-                filt_key = (sig_fs, chan['filters']['notch'])
-                if filt_key in notch_coeffs:
-                    filt_notch = notch_coeffs[filt_key]
-                else:
-                    filt_notch = biosignal_get_filter_coefficients(
-                        'notch', chan['filters']['notch'], sig_fs
-                    )
-                    notch_coeffs[filt_key] = filt_notch
-        if filt_hp is not None:
-            sig = signal.sosfiltfilt(filt_hp, sig)
-        if filt_lp is not None:
-            sig = signal.sosfiltfilt(filt_lp, sig)
-        if filt_notch is not None:
-            sig = signal.sosfiltfilt(filt_notch, sig)
-        # Remove data gaps in reverse order.
-        for gap in reversed(chan['data_gaps']):
-            gap_start = gap[0]
-            gap_end = gap[1]
-            if (gap_start == gap_end):
-                continue
-            sig = np.delete(sig, np.s_[gap_start:gap_end])
+        chan = py_channels[idx]
         # Remove possible filter paddings from start and end.
         if chan['filter_len'] > 0:
             sig = sig[chan['trim_start']:chan['trim_end']]
-        # Fit the signal part into available output buffer by removing extra elements from the end.
         if len(sig) > len(output[idx]):
+            # Fit the signal part into available output buffer by removing extra elements from the end.
             end_pos = -1*(len(sig) - len(output[idx]))
             sig = sig[:end_pos]
+        elif len(sig) < len(output[idx]):
+            # This should not happen, but prevent execution error by padding the end with zeroes.
+            print('Warning: Calculated signal data was insufficient for output array length.')
+            np.pad(sig, (0, len(output[idx]) - len(sig)), 'constant')
         # Filtering breaks contiguity, so make sure the result can be assigned.
         output[idx].assign(np.ascontiguousarray(sig, dtype='f'))
     return {
         'success': True
     }
-    #except Exception as e:
-    #    print(e)
-    #    return {
-    #        'success': False,
-    #        'error': ['Failed to compute signals:', str(e)]
-    #    }
 
 def biosignal_filter_signal (sig, fs, filters = None):
     """
@@ -347,6 +222,166 @@ def biosignal_get_filter_coefficients (btype, Wn, fs, N=None):
     if btype == 'notch':
         return signal.butter(N or N_stop, [(Wn - 1), (Wn + 1)], 'bandstop', output='sos', fs=fs)
     return None
+
+def biosignal_get_signals (channels):
+    """
+    Get signals according to the derivations in given `channels`.
+
+    Parameters
+    ----------
+    channels : dict[]
+        Properties of the channel derivations. Must include the following properties:
+        - `active` (int): Index of the active channel in the `input` list.
+        - `common_ref` (boolean): Is the reference of this channel shared by other channels of the same type.
+        - `data` (Float32Array): Buffer to insert the derived signals into.
+        - `data_gaps` (int[][]):  List of gaps in the singal data as [start index, end index].
+        - `end` (int): Ending index (excluded) of the signal data in the input buffer, including filter padding.
+            In case of index exceeding signal length, that amount of zeroes is added to the end of the signal as padding.
+        - `filter_len` (int): Length of the filter part at the start and end of the signal array, in data points.
+        - `filters` (dict): Channel filter critical frequencies as:\\
+                            -- highpass (float or None to use default for signal type)\\
+                            -- lowpass (float or None to use default for signal type)\\
+                            -- notch (float or None to use default for signal type)
+        - `reference` (int[]): List of channel indices to average as a reference signal.
+        - `start` (int): Starting index (included) of the signal data in the input buffer, including filter padding.
+            In case of a negative index, that amount of zeroes is added to the start of the signal as padding
+        - `type` (str): Type of the signal.
+
+    Returns
+    -------
+    { 'success': bool, 'error': str / str[] (if an error occurred) }
+    """
+    global biosignal
+    input_sigs = biosignal['input']
+    # Cache common ref values (speeds up average reference calculations).
+    common_ref = {}
+    # Cache filter coefficients by sampling rate and filter frequency.
+    hp_coeffs = {}
+    lp_coeffs = {}
+    notch_coeffs = {}
+    signals = [None]*len(channels)
+    for idx, chan in enumerate(channels):
+        if 'active' not in chan:
+            # Empty channel.
+            continue
+        act = input_sigs[chan['active']]
+        act_len = len(act) - biosignal['data_pos']
+        sig_fs = act[biosignal['data_fields']['sampling_rate']]
+        # Store possibly needed pad amounts for range that exceeds imput signal range.
+        pad_start = 0
+        if chan['start'] < 0:
+            pad_start = -1*chan['start']
+        pad_end = 0
+        if chan['end'] > act_len:
+            pad_end = chan['end'] - act_len
+        start_pos = biosignal['data_pos'] + chan['start'] + pad_start
+        if act[biosignal['data_fields']['updated_start']] > start_pos or act[biosignal['data_fields']['updated_start']] == biosignal['empty_field']:
+            # Pyodide does not support multithreading at the time of writing this. If a a request for signals is received before
+            # the raw data has not been loaded we cannot simply wait to finish execution once data is available.
+            # This is not ideal and should be improved when(/if) Pyodide implements threading.
+            # Multithreading issue: https://github.com/pyodide/pyodide/issues/237.
+            return {
+                'success': False,
+                'error': "Requested signals have not been loaded yet."
+            }
+        end_pos = biosignal['data_pos'] + chan['end'] - pad_end
+        if act[biosignal['data_fields']['updated_end']] < act_len and act[biosignal['data_fields']['updated_end']] < end_pos:
+            return {
+                'success': False,
+                'error': "Requested signals have not been loaded yet."
+            }
+        # Calculate the channel derivation.
+        sig_act = np.pad(act[start_pos:end_pos], (pad_start, pad_end), 'constant')
+        # Insert possible data gaps.
+        for gap in chan['data_gaps']:
+            sig_act = np.concatenate((
+                sig_act[:gap[0]],
+                np.zeros(gap[1] - gap[0], dtype='f'),
+                sig_act[gap[0]:]
+            ))
+        # Use common reference if possible to save computation time.
+        if chan['common_ref'] and chan['type'] in common_ref:
+            sig_ref = common_ref[chan['type']]
+        else:
+            sig_ref = np.zeros(len(sig_act), dtype='f')
+            ref_chans = list()
+            if len(chan['reference']) == 1:
+                sig_ref = np.pad(
+                    input_sigs[chan['reference'][0]][start_pos:end_pos],
+                    (pad_start, pad_end),
+                    'constant'
+                )
+            elif len(chan['reference']) > 1:
+                for ref_ch in chan['reference']:
+                    ref_chans.append(
+                        np.pad(
+                            input_sigs[ref_ch][start_pos:end_pos],
+                            (pad_start, pad_end),
+                            'constant'
+                        )
+                    )
+                sig_ref = np.mean(ref_chans, axis=0)
+            if len(chan['reference']) > 0:
+                # Insert possible data gaps.
+                for gap in chan['data_gaps']:
+                    sig_ref = np.concatenate((
+                        sig_ref[:gap[0]],
+                        np.zeros(gap[1] - gap[0], dtype='f'),
+                        sig_ref[gap[0]:]
+                    ))
+            # Save this if montage uses common reference.
+            if chan['common_ref']:
+                common_ref[chan['type']] = sig_ref
+        sig = sig_act - sig_ref
+        # Check if we should filter this signal.
+        filt_hp = None
+        filt_lp = None
+        filt_notch = None
+        if chan['filters'] is not None:
+            # Use default or individual filters as needed.
+            # None means use default, 0 means do not filter.
+            if chan['filters']['highpass']:
+                filt_key = (sig_fs, chan['filters']['highpass'])
+                if filt_key in hp_coeffs:
+                    filt_hp = hp_coeffs[filt_key]
+                else:
+                    filt_hp = biosignal_get_filter_coefficients(
+                        'highpass', chan['filters']['highpass'], sig_fs
+                    )
+                    hp_coeffs[filt_key] = filt_hp
+            if chan['filters']['lowpass']:
+                filt_key = (sig_fs, chan['filters']['lowpass'])
+                if filt_key in lp_coeffs:
+                    filt_lp = lp_coeffs[filt_key]
+                else:
+                    filt_lp = biosignal_get_filter_coefficients(
+                        'lowpass', chan['filters']['lowpass'], sig_fs
+                    )
+                    lp_coeffs[filt_key] = filt_lp
+            if chan['filters']['notch']:
+                filt_key = (sig_fs, chan['filters']['notch'])
+                if filt_key in notch_coeffs:
+                    filt_notch = notch_coeffs[filt_key]
+                else:
+                    filt_notch = biosignal_get_filter_coefficients(
+                        'notch', chan['filters']['notch'], sig_fs
+                    )
+                    notch_coeffs[filt_key] = filt_notch
+        if filt_hp is not None:
+            sig = signal.sosfiltfilt(filt_hp, sig)
+        if filt_lp is not None:
+            sig = signal.sosfiltfilt(filt_lp, sig)
+        if filt_notch is not None:
+            sig = signal.sosfiltfilt(filt_notch, sig)
+        # Remove data gaps in reverse order.
+        for gap in reversed(chan['data_gaps']):
+            gap_start = gap[0]
+            gap_end = gap[1]
+            if (gap_start == gap_end):
+                continue
+            sig = np.delete(sig, np.s_[gap_start:gap_end])
+        signals[idx] = sig
+    return signals
 
 def biosignal_set_buffers ():
     """
@@ -612,7 +647,7 @@ def biosignal_set_output ():
 
 def biosignal_update_input ():
     """
-    Update `input` to the data contained in `buffers`
+    Update `input` to the data contained in `buffers`.
 
     Returns
     -------

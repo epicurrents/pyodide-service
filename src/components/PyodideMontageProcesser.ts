@@ -333,4 +333,21 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
             this._montageSetups[montage] = { ...config }
         }
     }
+    /**
+     * Update Pyodide input signals arrays to the content of the shared array buffer from the input mutex.
+     * @returns Code execution result.
+     */
+    async updateInputSignals () {
+        const result = await this._runCode(
+            `biosignal_update_input()`,
+            {}
+        )
+        if (!result.success) {
+            Log.error(
+                [`Updating input signals in Pyodide failed.`, result.error].flat(),
+                SCOPE
+            )
+        }
+        return result
+    }
 }

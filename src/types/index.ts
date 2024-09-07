@@ -48,6 +48,11 @@ export interface PythonInterpreterService extends Omit<
      * * `simulateDocument` - Create document and window objects into pyodide's self scope.
      */
     runScript (name: string, script: string, params: { [key: string]: unknown }): Promise<RunCodeResult>
+    /**
+     * Update Pyodide input signals arrays to the content of the shared array buffer from the input mutex.
+     * @returns True on success, false on failure.
+     */
+    updateInputSignals (): Promise<UpdateInputSignalsResponse>
 }
 export type PythonWorkerCommission = {
     'load-packages': WorkerMessage['data'] & {
@@ -113,3 +118,4 @@ export type SetupScriptResult = {
     /** Possible resulted error as string a array of strings with the Python error as the second element. */
     error?: string | string[]
 }
+export type UpdateInputSignalsResponse = boolean

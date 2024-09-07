@@ -40,6 +40,7 @@ export class PyodideWorker extends MontageWorker {
             ['setup-input-mutex', this.setupInputMutex],
             ['setup-montage', this.setupMontage],
             ['setup-worker', this.setupWorker],
+            ['update-input-signals', this.updateInputSignals],
         ])
     }
 
@@ -313,6 +314,28 @@ export class PyodideWorker extends MontageWorker {
             resolve()
         }
         return this._success(msgData)
+    }
+    /**
+     * Update the content of the python input signal arrays to match the shared array buffer content.
+     * @param msgData - Data part of the commission message.
+     * @returns True on success, false on failure.
+     */
+    async updateInputSignals (msgData: WorkerMessage['data']) {
+        this._initialized = true
+        const data = validateCommissionProps(
+            msgData,
+            {},
+            this._montage !== null
+        )
+        if (!data) {
+            return this._failure(msgData)
+        }
+        const updateInput = await this._montage?.updateInputSignals()
+        if (updateInput.success) {
+            return this._success(msgData)
+        } else {
+            return this._failure(msgData, updateInput.error)
+        }
     }
 }
 
