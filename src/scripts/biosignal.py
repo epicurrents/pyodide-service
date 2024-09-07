@@ -1,5 +1,5 @@
 """
-Biosignal processing functions.
+Biosignal processing functions. Some of the methods in this file are concepts still under development.
 """
 
 import numpy as np
@@ -21,21 +21,26 @@ biosignal = {
         'notch': None,
         'N_pass': 6,
         'N_stop': 9, # Use a higher N for bandstop filters.
-        'padding': 0,
     },
     'input': None,
     'montage': None,
     'output': None,
 }
-
 """ 
 Global variables used in these methods.
-- `available_montages`: Dictionary of available montages with the montage name as key and list of channels as value.
+- `available_montages`: Dictionary of available montages with the montage name as key and list of channels as value (NYI).
+- `buffers`: List of JS proxies pointing to the shared array buffers holding the input signals, or None if not set. These cannot be directly used but must first be assigned to a numpy array.
 - `data_fields`: Dictionary of data field names and positions (float32 index) within the input arrays.
-- `data_pos`: Starting position (float32 index) of the signal data in input arrays.
+- `data_pos`: Starting position (float32 index) of the signal data in the input arrays.
+- `empty_field`: Value that denotes an empty (meta) field in the input data array buffers.
 - `filters`: Dictionary of default filter params; None for filter types if not set.
-- `input`: List of input signals as 1d numpy arrays, or None if not set.
-- `montage`: Currently active montage from `available_montages`, or None if not set.
+    - `highpass`: Critical frequency of the highpass filter, or None if not set.
+    - `lowpass`: Critical frequency of the lowpass filter, or None if not set.
+    - `notch`: Critical frequency of the notch filter, or None if not set.
+    - `N_pass`: Default Butterworth filter N value for bandpass type filters.
+    - `N_stop`: Default Butterworth filter N value for bandstop type filters.
+- `input`: List of input signals as 1d numpy arrays, or None if not set. These are the float32 views of the data in the signal array buffers.
+- `montage`: Currently active montage from `available_montages`, or None if not set (NYI).
 - `output`: List of output signals where processing results should be written, or None if not set.
 """
 
@@ -153,8 +158,6 @@ def biosignal_filter_signal (sig, fs, filters = None):
     { 'success': bool, 'value': Filtered signal (if success), 'error': Error message (if an error occurred) }
     """
     global biosignal
-    N_pass = biosignal['filters']['N_pass']
-    N_stop = biosignal['filters']['N_stop']
     if filters is None:
         filters = biosignal['filters']
     try:
@@ -414,8 +417,10 @@ def biosignal_set_buffers ():
 
 def biosignal_set_default_filters ():
     """
-    Set new default filter paramaters. Precomputing coefficients for commonly used filters saves computing time
-    when signals need to be filtered.
+    Set new default filter paramaters.
+    
+    TODO: Precomputing coefficients for commonly used filters may save computing time
+    when a large number of signals need to be filtered?
 
     Parameters
     ----------
@@ -502,26 +507,6 @@ def biosignal_set_filter ():
         return { 'success': True }
     except Exception as e:
         return { 'success': False, 'error': str(e) }
-
-def biosignal_set_filter_padding ():
-    """
-    Set the amount of padding used when filterin signals.
-
-    Parameters
-    ----------
-    Parameters required to be present from JS side:
-
-    padding : float
-        Padding amount before and after the signal segment to filter, in seconds.
-
-    Returns
-    -------
-    { 'success': bool, 'error': str / str[] (if an error occurred) }
-    """
-    global biosignal
-    from js import padding
-    biosignal['filters']['padding'] = padding
-    return { 'success': True }
    
 def biosignal_set_montage ():
     """
@@ -572,7 +557,6 @@ def biosignal_set_montage_filters ():
             'success': False,
             'error': "Cannot set filters for montage, '" + montage + "' cannot be found."
         }
-    #try:
     mtg = biosignal['available_montages'][montage]
     flt = filters.to_py()
     for idx, chan in enumerate(mtg):
@@ -580,41 +564,6 @@ def biosignal_set_montage_filters ():
         chan['filters']['lowpass'] = flt[idx]['lowpass']
         chan['filters']['notch'] = flt[idx]['notch']
     return { 'success': True }
-    #except Exception as e:
-    #    return {
-    #        'success': False,
-    #        'error': ['Failed to set montage filters:', str(e)]
-    #    }
- 
-def biosignal_setup ():
-    """
-    Set up the biosignal recording used in computations.
-
-    Parameters
-    ----------
-    Parameters required to be present from JS side:
-
-    data_pos : number
-        Starting position of the signal data.
-    data_fields : dict
-        Names and positions of possible data fields in the data array.
-    filter_padding : float
-        Amount of padding used when filtering signals, in seconds.
-    signals : Float32Array
-        Float32Array view to the data containing the signals.
-
-    Returns
-    -------
-    { 'success': bool, 'error': str / str[] (if an error occurred) }
-    """
-    global biosignal
-    from js import data_pos, data_fields, filter_padding, signals
-    biosignal['data_pos'] = data_pos
-    biosignal['data_fields'] = data_fields.to_py()
-    biosignal['filters']['padding'] = filter_padding
-    biosignal['input'] = []
-    for arr in signals:
-        biosignal['input'].append(np.asarray(arr.to_py(), dtype='f').view())
 
 def biosignal_set_output ():
     """
