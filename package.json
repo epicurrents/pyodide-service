@@ -9,11 +9,12 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
-    }
+    },
+    "./components": "./dist/components/index.js",
+    "./types": "./dist/types/index.d.ts"
   },
   "imports": {
-    "#root/*": "./dist/*",
-    "#*": "./dist/src/*"
+    "#*": "./dist/*"
   },
   "files": [
     "dist/*",
@@ -23,9 +24,10 @@
     "README.md"
   ],
   "scripts": {
-    "build": "npm run build:umd && npm run build:tsc",
+    "build": "npm run build:umd && npm run build:tsc && npm run copy:scripts",
     "build:tsc": "node node_modules/typescript/bin/tsc && node node_modules/tsconfig-replace-paths/dist/commonjs --project tsconfig.json",
     "build:umd": "node node_modules/webpack/bin/webpack.js --progress --stats-error-details --config webpack.config.js",
+    "copy:scripts": "node copy-scripts.js",
     "dev": "node node_modules/webpack/bin/webpack.js serve --progress --config webpack.dev.js",
     "lint": "npm run lint:src",
     "lint:src": "node node_modules/eslint/bin/eslint src",

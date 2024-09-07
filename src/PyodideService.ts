@@ -6,23 +6,25 @@
  */
 
 import { GenericService } from '@epicurrents/core'
-import { type AssetService, type WorkerResponse } from '@epicurrents/core/dist/types'
+import { type SetupMutexResponse, type WorkerResponse } from '@epicurrents/core/dist/types'
 import { Log } from 'scoped-ts-log'
+import { type MutexExportProperties } from 'asymmetric-io-mutex'
+
+import biosignal from './scripts/biosignal.py'
+import {
+    type PythonInterpreterService,
+    type RunCodeResult,
+    type ScriptState,
+    type UpdateInputSignalsResponse,
+} from '#types'
+import { type SetupWorkerResponse } from '@epicurrents/core/dist/types/service'
+const DEFAULT_SCRIPTS = new Map([
+    ['biosignal', biosignal],
+])
 
 const SCOPE = 'PyodideService'
 
-type LoadingState = 'error' | 'loaded' | 'loading' | 'not_loaded'
-type ScriptState = {
-    /**
-     * Variable names and values to use in the python script.
-     */
-    params: { [key: string]: unknown }
-    /**
-     * Script loading state.
-     */
-    state: LoadingState
-}
-export default class PyodideService extends GenericService implements AssetService {
+export default class PyodideService extends GenericService implements PythonInterpreterService {
     protected _callbacks = [] as ((...results: unknown[]) => unknown)[]
     protected _loadedPackages = [] as string[]
     /**
@@ -47,15 +49,6 @@ export default class PyodideService extends GenericService implements AssetServi
         Log.registerWorker(worker)
         super(SCOPE, worker)
         worker.addEventListener('message', this.handleWorkerResponse.bind(this))
-        // Set up a map for initializxation waiters.
-        this._initWaiters('init')
-    }
-
-    get initialLoad () {
-        if (!this._waiters.get('init')) {
-            return Promise.resolve(true)
-        }
-        return this.awaitAction('init')
     }
 
     handleWorkerResponse (message: WorkerResponse) {
@@ -79,26 +72,19 @@ export default class PyodideService extends GenericService implements AssetServi
         return false
     }
 
-    async initialize (config?: { indexURL?: string, packages?: string[] }) {
-        const commission = this._commissionWorker(
-            'initialize',
-            new Map<string, unknown>([
-                ['config', config],
-            ])
-        )
-        const response = await commission.promise
-        if (config?.packages?.length) {
-            this._loadedPackages.push(...config.packages)
+    async loadDefaultScript (name: string) {
+        const script = DEFAULT_SCRIPTS.get(name)
+        if (script) {
+            try {
+                await this.runScript(name, script, {})
+            } catch (e: unknown) {
+                return { success: false, error: e as string }
+            }
+            return { success: true }
         }
-        // Notify possible waiters that loading is done.
-        this._notifyWaiters('init', true)
-        return response
+        return { success: false, error: `Default script '${name}' was not found.` }
     }
 
-    /**
-     * Load the given packages into the Python interpreter.
-     * @param packages - Array of package names to load.
-     */
     async loadPackages (packages: string[]) {
         packages = packages.filter(pkg => (this._loadedPackages.indexOf(pkg) === -1))
         const commission = this._commissionWorker(
@@ -109,20 +95,11 @@ export default class PyodideService extends GenericService implements AssetServi
         )
         const response = await commission.promise
         this._loadedPackages.push(...packages)
-        return response
+        return response as boolean
     }
 
-    /**
-     * Run the provided piece of `code` with the given `parameters`.
-     * @param code - Python code as a string.
-     * @param params - Parameters for execution passed to the python script.
-     * @param scriptDeps - Scripts that this core depends on.
-     * @remarks
-     * Reserved `params` are:
-     * * `simulateDocument` - Create document and window objects into pyodide's self scope.
-     */
     async runCode (code: string, params: { [key: string]: unknown }, scriptDeps: string[] = []) {
-        await this.initialLoad
+        await this.initialSetup
         const invalidScriptStates = ['not_loaded', 'error']
         for (const dep of scriptDeps) {
             if (this._scripts[dep]) {
@@ -147,28 +124,22 @@ export default class PyodideService extends GenericService implements AssetServi
                 ...Object.entries(params)
             ])
         )
-        return commission.promise
+        return commission.promise as Promise<RunCodeResult>
     }
 
-    /**
-     * Load and run the `script` using the given `parameters`.
-     * @param name - Name of the script.
-     * @param script - Script contents.
-     * @param params - Parameters for execution passed to the python script.
-     * @remarks
-     * Reserved `params` are:
-     * * `simulateDocument` - Create document and window objects into pyodide's self scope.
-     */
-    async runScript (name: string, script: string, params: { [key: string]: unknown }) {
+    async runScript (name: string, script: string, params: { [key: string]: unknown }, scriptDeps: string[] = []) {
         if (name in this._scripts) {
             if (
-                this._scripts[name].state === 'loading' ||
                 this._scripts[name].state === 'loaded'
             ) {
-                Log.debug(`Script ${name} is already loading or has been loaded.`, SCOPE)
+                Log.debug(`Script '${name}' has already been loaded.`, SCOPE)
                 return {
                     success: true,
                 }
+            } else if (
+                this._scripts[name].state === 'loading'
+            ) {
+                return this.awaitAction(`script:${name}`) as Promise<RunCodeResult>
             }
         }
         Log.debug(`Loading script ${name}.`, SCOPE)
@@ -178,19 +149,67 @@ export default class PyodideService extends GenericService implements AssetServi
             state: 'loading',
         } as ScriptState
         this._scripts[name] = newScript
-        const commission = this._commissionWorker(
-            'run-code',
-            new Map<string, unknown>([
-                ['code', script],
-                ...Object.entries(params)
-            ])
-        )
-        const response = await commission.promise
+        const response = await this.runCode(script, params, scriptDeps)
         if (name in this._scripts) {
             Log.debug(`Script ${name} loaded.`, SCOPE)
             this._scripts[name].state = 'loaded'
             this._notifyWaiters(`script:${name}`, true)
         }
+        return response
+    }
+
+    async setInputMutex (
+        input: MutexExportProperties,
+        dataDuration: number,
+        recordingDuration: number,
+        bufferStart = 0,
+    ) {
+        if (this._scripts['biosignal'].state === 'error') {
+            Log.error(`Cannot set input mutex, biosignal script setup failed.`, SCOPE)
+            return { success: false }
+        }
+        if (this._scripts['biosignal'].state === 'not_loaded') {
+            Log.debug(`Loading biosignals scripts before setting up recording.`, SCOPE)
+            if (!(await this.loadDefaultScript('biosignal'))) {
+                Log.error(`Cannot set input mutex, biosignal script setup failed.`, SCOPE)
+                return { success: false }
+            }
+        }
+        const commission = this._commissionWorker(
+            'setup-input-mutex',
+            new Map<string, unknown>([
+                ['bufferStart', bufferStart],
+                ['dataDuration', dataDuration],
+                ['input', input],
+                ['recordingDuration', recordingDuration],
+            ])
+        )
+        const response = await commission.promise as SetupMutexResponse
+        return response
+    }
+
+    async setupWorker (config?: { indexURL?: string, packages?: string[] }) {
+        // Set up a map for initialization waiters.
+        this._initWaiters('setup-worker')
+        const commission = this._commissionWorker(
+            'setup-worker',
+            new Map<string, unknown>([
+                ['config', config],
+            ])
+        )
+        const response = await commission.promise as SetupWorkerResponse
+        if (config?.packages?.length) {
+            this._loadedPackages.push(...config.packages)
+        }
+        // Notify possible waiters that loading is done.
+        this._notifyWaiters('setup-worker', true)
+        return response
+    }
+    
+    async updateInputSignals () {
+        await this.initialSetup
+        const commission = this._commissionWorker('update-input-signals')
+        const response = await commission.promise as UpdateInputSignalsResponse
         return response
     }
 }

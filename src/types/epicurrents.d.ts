@@ -1,6 +1,6 @@
 /**
- * Global property type declarations.
- * @package    @epicurrents/pyodide-service
+ * Epicurrents property type declarations.
+ * @package    epicurrents/pyodide-service
  * @copyright  2024 Sampsa Lohi
  * @license    Apache-2.0
  */

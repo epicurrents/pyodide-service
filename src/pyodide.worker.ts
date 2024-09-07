@@ -12,112 +12,72 @@
 
 /* eslint-disable */
 
+import { CommonBiosignalSettings, WorkerMessage } from '@epicurrents/core/dist/types'
+import { validateCommissionProps } from '@epicurrents/core/dist/util'
+import { MontageWorker } from '@epicurrents/core/dist/workers'
+import PyodideMontageProcesser from './components/PyodideMontageProcesser'
+import { PythonWorkerCommission, RunCodeResult } from '@epicurrents/pyodide-service/src/types'
 import { Log } from 'scoped-ts-log'
+import { type MontageWorkerCommission } from '@epicurrents/core/dist/types/biosignal'
 
 importScripts("https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js")
 
 const SCOPE = "PyodideWorker"
 
-async function loadPyodideAndPackages (config?: { indexURL?: string, packages?: string[] }) {
-    // Load main Pyodide from CDN, but packages locally to avoid throttling.
-    (self as any).pyodide = await loadPyodide({
-        indexURL: config?.indexURL,
-    })
-    // Load packages that are common to all contexts.
-    const packages = ['numpy', 'scipy']
-    if (config?.packages?.length) {
-        packages.push(...config.packages)
+export class PyodideWorker extends MontageWorker {
+    protected _initialized = false
+    protected _loadingDone = false
+    protected _loadWaiters = [] as (() => void)[]
+    protected _montage = null as PyodideMontageProcesser | null
+    protected _namespace = ''
+    protected _settings = null as CommonBiosignalSettings | null
+    constructor () {
+        super()
+        // Extend action map with Python commissions.
+        this.extendActionMap([
+            ['load-packages', this.loadPackages],
+            ['run-code', this.runCode],
+            ['setup-input-mutex', this.setupInputMutex],
+            ['setup-montage', this.setupMontage],
+            ['setup-worker', this.setupWorker],
+            ['update-input-signals', this.updateInputSignals],
+        ])
     }
-    await (self as any).pyodide.loadPackage(packages)
-}
-let initialized = false
-// Allow waiting for the loading process to complete.
-let loadingDone = false
-const loadWaiters = [] as (() => void)[]
-const awaitLoad = () => {
-    if (loadingDone) {
-        return Promise.resolve()
-    }
-    const promise = new Promise<void>((resolve) => {
-        loadWaiters.push(resolve)
-    })
-    return promise
-}
 
-self.onmessage = async (event) => {
-    const { rn, action, ...context } = event.data
-    if (action === 'initialize') {
-        initialized = true
-        loadPyodideAndPackages(context.config).then(() => {
-            loadingDone = true
-            for (const resolve of loadWaiters) {
-                resolve()
+    protected _awaitLoad = () => {
+        if (this._loadingDone) {
+            return Promise.resolve()
+        }
+        const promise = new Promise<void>((resolve) => {
+            this._loadWaiters.push(resolve)
+        })
+        return promise
+    }
+
+    protected _runPythonCode = async (
+        code: string,
+        context: { [key: string]: unknown },
+        simulateDocument = false
+    ): Promise<RunCodeResult> => {
+        const unbindProps = () => {
+            // Unbind properties.
+            for (const key of Object.keys(context)) {
+                if (key.includes('__proto__')) {
+                    continue
+                }
+                delete (self as any)[key]
             }
-            postMessage({
-                rn: rn,
-                action: 'initialize',
-                success: true,
-            })
-        })
-        return
-    }
-    // Initialize must be called before anything else.
-    if (!initialized) {
-        postMessage({
-            rn: rn,
-            action: action,
-            error: 'Pyodide must be initialized before any other commissions are issued.',
-            success: false,
-        })
-        return
-    }
-    // Make sure loading is done.
-    await awaitLoad()
-    // Bind properties to allow pyodide access to them.
-    for (const key of Object.keys(context)) {
-        if (key.includes('__proto__')) {
-            Log.warn(`Code param ${key} contains insecure field '_proto__', parameter was ignored.`, SCOPE)
-            continue
-        }
-        (self as any)[key] = context[key]
-    }
-    if (action === 'load-packages') {
-        if (!context.packages) {
-            postMessage({
-                rn: rn,
-                action: 'load-packages',
-                error: 'Load-packages requires a non-empty array of packages to load.',
-                success: false,
-            })
-            return
         }
         try {
-            await (self as any).pyodide.loadPackage(context.packages)
-            self.postMessage({
-                rn: rn,
-                success: true,
-                action: 'load-packages',
-            })
-        } catch (error) {
-            self.postMessage({
-                rn: rn,
-                success: false,
-                action: 'load-packages',
-                error: error,
-            })
-        }
-    } else if (action === 'run-code') {
-        if (!context.code) {
-            postMessage({
-                rn: rn,
-                action: 'run-code',
-                error: 'Run-code requires a non-empty code string to run.',
-                success: false,
-            })
-            return
-        }
-        try {
-            if (context.simulateDocument) {
+            // Bind properties to allow pyodide access to them.
+            for (const key of Object.keys(context)) {
+                if (key.includes('__proto__')) {
+                    Log.warn(`Code param ${key} contains insecure field '_proto__', parameter was ignored.`, SCOPE)
+                    continue
+                }
+                (self as any)[key] = context[key]
+            }
+            if (simulateDocument) {
                 // Create some dummy object to pass as window and document (only needed for matplotlib).
                 const createDummyEl = (..._params: unknown[]) => {
                     return {
@@ -137,26 +97,296 @@ self.onmessage = async (event) => {
                     setTimeout: (..._params: unknown[]) => { return 1 },
                 }
             }
-            const runCode = (self as any).pyodide.runPython(context.code)
-            const results = await runCode
+            const runCode = (self as any).pyodide.runPython(code)
+            const result = await runCode
             // Undo document simulation.
-            if (context.simulateDocument) {
+            if (simulateDocument) {
                 ;(self as any).document = undefined
                 ;(self as any).window = undefined
             }
-            self.postMessage({
-                rn: rn,
+            // For more complex data types, Pyodide returns proxies which are prone to memory leaks.
+            const resultIsProxy = !!result && typeof result === 'object'
+            const response = resultIsProxy 
+                            // Convert Map (Pyodide's default conversion type for dict) into Object.
+                            // Setting create_proxies to false prevents the creation no nested proxies.
+                            ? result.toJs({ dict_converter : Object.fromEntries, create_proxies : false })
+                            : result
+            if (resultIsProxy) {
+                // Destroy the proxy to remove the reference to contained data.
+                result.destroy()
+            }
+            unbindProps()
+            if (typeof response === 'object' && response.success !== undefined) {
+                // Return the complete response if it contains the success property.
+                return response
+            }
+            return {
                 success: true,
-                action: 'run-code',
-                result: results,
-            })
+                result: response,
+            }
         } catch (error) {
-            self.postMessage({
-                rn: rn,
+            unbindProps()
+            return {
                 success: false,
-                action: 'run-code',
-                error: error,
-            })
+                error: error as string,
+            }
         }
     }
+
+    async getSignals(msgData: WorkerMessage['data']): Promise<boolean> {
+        const data = validateCommissionProps(
+            msgData as MontageWorkerCommission['get-signals'],
+            {
+                range: ['Number', 'Number'],
+                config: ['Object', 'undefined'],
+                montage: ['String', 'undefined'],
+            },
+            this._montage !== null
+        )
+        if (!data || !this._montage) {
+            return this._failure(msgData)
+        }
+        // Check that the correct montage is active, if it is given.
+        if (data.montage && this._montage.activeMontage !== data.montage) {
+            if (!this._montage.setMontage(data.montage)) {
+                return this._failure(msgData, `Given montage ${data.montage} has not been set up.`)
+            } else {
+                this._name = data.montage
+            }
+        }
+        return super.getSignals(msgData)
+    }
+
+    async handlePythonMessage (message: WorkerMessage) {
+        if (!message?.data?.action) {
+            return this._failure(message.data || {}, `Worker commission did not contain data or an action.`)
+        }
+        if (message.data.action === 'setup-worker') {
+            if (message.data.montage) {
+                // Try montage setup.
+                return this.setupMontage(message.data)
+            }
+            return this.setupWorker(message.data)
+        }
+        // Initialize must be called before anything else.
+        if (!this._initialized) {
+            return this._failure(
+                message.data,
+                'Pyodide must be initialized before any other commissions are issued.'
+            )
+        }
+        // Make sure loading is done.
+        await this._awaitLoad()
+        return this.handleMessage(message)
+    }
+
+    async loadPackages (msgData: WorkerMessage['data']) {
+        const data = validateCommissionProps(
+            msgData as PythonWorkerCommission['load-packages'],
+            {
+                packages: 'Array',
+            }
+        )
+        if (!data) {
+            return this._failure(msgData)
+        }
+        if (!data.packages) {
+            return this._failure(msgData, 'Load-packages requires a non-empty array of packages to load.')
+        }
+        try {
+            await (self as any).pyodide.loadPackage(msgData.packages)
+            return this._success(msgData)
+        } catch (error) {
+            return this._failure(msgData, error as string)
+        }
+    }
+
+    async runCode (msgData: WorkerMessage['data']) {
+        const data = validateCommissionProps(
+            msgData as PythonWorkerCommission['run-code'],
+            {
+                code: 'String',
+            }
+        )
+        if (!data) {
+            return this._failure(msgData)
+        }
+        if (!data.code) {
+            return this._failure(msgData, `'run-code' requires a non-empty code string to run.`)
+        }
+        // Separate arbitrary code parameters from the required properties.
+        const { action, code, rn, ...params } = data
+        let simDoc = false
+        if (params.simulateDocument) {
+            // Extract reserved parameter simulateDocument and remove it from params.
+            simDoc = true
+            delete params.simulateDocument
+        }
+        const response = await this._runPythonCode(code, params, simDoc)
+        if (response.error) {
+            return this._failure(msgData, response.error)
+        } else {
+            return this._success(msgData, { result: response.result })
+        }
+    }
+
+    async setFilters (msgData: WorkerMessage['data']) {
+        const data = validateCommissionProps(
+            msgData as MontageWorkerCommission['set-filters'],
+            {
+                name: 'String',
+            },
+            this._montage !== null
+        )
+        if (!data || !this._montage) {
+            return this._failure(msgData)
+        }
+        if (this._montage.activeMontage === data.name) {
+            return super.setFilters(msgData)
+        } else {
+            // We need to set the right channels to update with the new filters.
+            const actMontage = this._montage.activeMontage
+            this._montage.setMontage(data.name)
+            this._name = data.name
+            const success = await super.setFilters(msgData)
+            this._montage.setMontage(actMontage)
+            this._name = actMontage
+            if (success) {
+                return this._success(msgData)
+            } else {
+                return this._failure(msgData)
+            }
+        }
+    }
+
+    async setupInputMutex (msgData: WorkerMessage['data']) {
+        const data = validateCommissionProps(
+            msgData as PythonWorkerCommission['set-input-mutex'],
+            {
+                bufferStart: 'Number',
+                config: 'Object',
+                dataDuration: 'Number',
+                input: 'Object',
+                montage: 'String',
+                recordingDuration: 'Number',
+                setupChannels: 'Array',
+            },
+            this._montage !== null
+        )
+        if (!data || !this._montage) {
+            return this._failure(msgData)
+        }
+        this._montage.setupChannels(data.montage, data.config, data.setupChannels)
+        const cacheSetup = await this._montage.setupMutexWithInput(
+            data.input,
+            data.bufferStart,
+            data.dataDuration,
+            data.recordingDuration
+        )
+        if (cacheSetup) {
+            Log.debug(`Mutex setup in Pyodide complete.`, SCOPE)
+            // Set the mutex input data buffers as signal source in Pyodide.
+            const result = await this._runPythonCode(
+                'biosignal_set_buffers()',
+                {
+                    buffers: await this._montage.getInputViews()
+                }
+            )
+            if (result.success) {
+                // Pass the generated shared buffers back to main thread.
+                return this._success(msgData, {
+                    cacheProperties: cacheSetup,
+                })
+            } else {
+                return this._failure(msgData, `Setting input buffers in Pyodide montege processer failed.`)
+            }
+        } else {
+            return this._failure(msgData, `Setting up mutex in the Pyodide montage processer failed.`)
+        }
+    }
+
+    async setupMontage (msgData: WorkerMessage['data']) {
+        const data = validateCommissionProps(
+            msgData as PythonWorkerCommission['setup-montage'],
+            {
+                config: 'Object',
+                montage: 'String',
+                namespace: 'String',
+                settings: 'Object',
+                setupChannels: 'Array',
+            },
+        )
+        if (!data) {
+            return this._failure(msgData)
+        }
+        if (!this._settings) {
+            this._namespace = data.namespace
+            this._settings = data.settings.modules[data.namespace] as CommonBiosignalSettings
+        }
+        if (!this._montage) {
+            this._montage = new PyodideMontageProcesser(this._runPythonCode, this._settings)
+        }
+        this._montage.setupChannels(data.montage, data.config, data.setupChannels)
+        return this._success(msgData)
+    }
+
+    async setupWorker (msgData: WorkerMessage['data']) {
+        this._initialized = true
+        const data = validateCommissionProps(
+            msgData as PythonWorkerCommission['setup-worker'],
+            {
+                config: ['Object', 'undefined'],
+            }
+        )
+        if (!data) {
+            return this._failure(msgData)
+        }
+        await loadPyodideAndPackages(data.config)
+        this._loadingDone = true
+        for (const resolve of this._loadWaiters) {
+            resolve()
+        }
+        return this._success(msgData)
+    }
+    /**
+     * Update the content of the python input signal arrays to match the shared array buffer content.
+     * @param msgData - Data part of the commission message.
+     * @returns True on success, false on failure.
+     */
+    async updateInputSignals (msgData: WorkerMessage['data']) {
+        this._initialized = true
+        const data = validateCommissionProps(
+            msgData,
+            {},
+            this._montage !== null
+        )
+        if (!data) {
+            return this._failure(msgData)
+        }
+        const updateInput = await this._montage?.updateInputSignals()
+        if (updateInput.success) {
+            return this._success(msgData)
+        } else {
+            return this._failure(msgData, updateInput.error)
+        }
+    }
+}
+
+async function loadPyodideAndPackages (config?: { indexURL?: string, packages?: string[] }) {
+    // Load main Pyodide from CDN, but packages locally to avoid throttling.
+    (self as any).pyodide = await loadPyodide({
+        indexURL: config?.indexURL,
+    })
+    // Load packages that are common to all contexts.
+    const packages = ['numpy', 'scipy']
+    if (config?.packages?.length) {
+        packages.push(...config.packages)
+    }
+    await (self as any).pyodide.loadPackage(packages)
+}
+
+const PYODIDE = new PyodideWorker()
+
+onmessage = async (message: WorkerMessage) => {
+    PYODIDE.handlePythonMessage(message)
 }

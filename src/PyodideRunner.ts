@@ -11,28 +11,25 @@
  */
 
 import { GenericService } from '@epicurrents/core'
-import { type AssetService } from '@epicurrents/core/dist/types'
+import {
+    type PythonInterpreterService,
+    type ScriptState,
+    type UpdateInputSignalsResponse,
+} from '#types'
 import { loadPyodide } from 'pyodide/pyodide.js'
 import { Log } from 'scoped-ts-log'
+
+import biosignal from './scripts/biosignal.py'
+const DEFAULT_SCRIPTS = new Map([
+    ['biosignal', biosignal],
+])
 
 const SCOPE = 'PyodideRunner'
 // const MOUNT_DIR = '/mount_dir' // This would be used as mount root in the WASM virtual filesystem.
 
-type LoadingState = 'error' | 'loaded' | 'loading' | 'not_loaded'
-type ScriptState = {
-    /**
-     * Variable names and values to use in the python script.
-     */
-    params: { [key: string]: unknown }
-    /**
-     * Script loading state.
-     */
-    state: LoadingState
-}
-
-export default class PyodideRunner extends GenericService implements AssetService {
-    protected _loadPromise: Promise<void> | null
-    protected _loadWaiters: (() => void)[] = []
+export default class PyodideRunner extends GenericService implements PythonInterpreterService {
+    protected _loadPromise: Promise<boolean> | null
+    protected _loadWaiters: ((result: boolean) => void)[] = []
     protected _pyodide: Pyodide | null = null
     /**
      * Some scripts are run only once and kept in memory.
@@ -46,17 +43,17 @@ export default class PyodideRunner extends GenericService implements AssetServic
         this._loadPromise.then(() => {
             // Notify possible waithers that loading is done.
             for (const resolve of this._loadWaiters) {
-                resolve()
+                resolve(true)
             }
             this._loadPromise = null
         })
     }
 
-    get initialLoad () {
+    get initialSetup () {
         if (!this._loadPromise) {
-            return Promise.resolve()
+            return Promise.resolve(true)
         }
-        const promise = new Promise<void>((resolve) => {
+        const promise = new Promise<boolean>((resolve) => {
             this._loadWaiters.push(resolve)
         })
         return promise
@@ -69,6 +66,20 @@ export default class PyodideRunner extends GenericService implements AssetServic
         })
         // Load packages that are common to all contexts.
         await this._pyodide?.loadPackage(['numpy', 'scipy'].concat(...(config?.packages || [])))
+        return true
+    }
+
+    async loadDefaultScript (name: string) {
+        const script = DEFAULT_SCRIPTS.get(name)
+        if (script) {
+            try {
+                await this.runScript(name, script, {})
+            } catch (e: unknown) {
+                return { success: false, error: e as string }
+            }
+            return { success: true }
+        }
+        return { success: false, error: `Default script '${name}' was not found.` }
     }
 
     /**
@@ -76,8 +87,9 @@ export default class PyodideRunner extends GenericService implements AssetServic
      * @param packages - Array of package names to load.
      */
     async loadPackages (packages: string[]) {
-        await this.initialLoad
+        await this.initialSetup
         await this._pyodide?.loadPackage(packages)
+        return true
     }
 
     /**
@@ -87,17 +99,21 @@ export default class PyodideRunner extends GenericService implements AssetServic
      * @param scriptDeps - Scripts that this core depends on.
      */
     async runCode (code: string, params?: { [key: string]: unknown }, scriptDeps: string[] = []) {
-        await this.initialLoad
+        await this.initialSetup
         const invalidScriptStates = ['not_loaded', 'error']
         for (const dep of scriptDeps) {
             if (this._scripts[dep]) {
                 if (invalidScriptStates.includes(this._scripts[dep].state)) {
-                    Log.error(`Cannot run code, dependency script has not loaded yet.`, SCOPE)
-                    return null
+                    return {
+                        success: false,
+                        error: `Cannot run code, dependency script has not loaded yet.`
+                    }
                 } else if (this._scripts[dep].state === 'loading') {
                     if (!(await this.awaitAction(`script:${dep}`))) {
-                        Log.error(`Cannot run code, dependency script loading failed.`, SCOPE)
-                        return null
+                        return {
+                            success: false,
+                            error: `Cannot run code, dependency script loading failed.`
+                        }
                     }
                 }
             }
@@ -113,8 +129,18 @@ export default class PyodideRunner extends GenericService implements AssetServic
                 (window as any)[key] = params[key]
             }
         }
-        const results = await this._pyodide?.runPythonAsync(code)
-        return results
+        try {
+            const result = await this._pyodide?.runPythonAsync(code)
+            return {
+                success: true,
+                result: result,
+            }
+        } catch (e) {
+            return {
+                success: false,
+                error: e as string
+            }
+        }
     }
 
     /**
@@ -185,5 +211,19 @@ export default class PyodideRunner extends GenericService implements AssetServic
         } catch (e: unknown) {
             Log.error("Unable to read and write directory.", SCOPE, e as Error)
         }
+    }
+
+    async setupBiosignalRecording () {
+        return {
+            success: false,
+            error: `Not yet implemented.`
+        }
+    }
+    
+    async updateInputSignals () {
+        await this.initialSetup
+        const commission = this._commissionWorker('update-input-signals')
+        const response = await commission.promise as UpdateInputSignalsResponse
+        return response
     }
 }
