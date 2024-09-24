@@ -10,7 +10,7 @@ import { type SetupMutexResponse, type WorkerResponse } from '@epicurrents/core/
 import { Log } from 'scoped-ts-log'
 import { type MutexExportProperties } from 'asymmetric-io-mutex'
 
-import biosignal from './scripts/biosignal.py'
+import biosignal from './scripts/biosignal.py?raw'
 import {
     type PythonInterpreterService,
     type RunCodeResult,
@@ -98,7 +98,7 @@ export default class PyodideService extends GenericService implements PythonInte
         return response as boolean
     }
 
-    async runCode (code: string, params: { [key: string]: unknown }, scriptDeps: string[] = []) {
+    async runCode (code: string, params: { [key: string]: unknown } = {}, scriptDeps: string[] = []) {
         await this.initialSetup
         const invalidScriptStates = ['not_loaded', 'error']
         for (const dep of scriptDeps) {
@@ -126,8 +126,13 @@ export default class PyodideService extends GenericService implements PythonInte
         )
         return commission.promise as Promise<RunCodeResult>
     }
-
-    async runScript (name: string, script: string, params: { [key: string]: unknown }, scriptDeps: string[] = []) {
+    
+    async runScript (
+        name: string,
+        script: string,
+        params: { [key: string]: unknown } = {},
+        scriptDeps: string[] = []
+    ) {
         if (name in this._scripts) {
             if (
                 this._scripts[name].state === 'loaded'

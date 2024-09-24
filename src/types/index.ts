@@ -31,23 +31,29 @@ export interface PythonInterpreterService extends Omit<
     /**
      * Run the provided piece of `code` with the given parameters.
      * @param code - Python code as a string.
-     * @param params - Parameters for execution passed to the python script.
-     * @param scriptDeps - Scripts that this core depends on.
+     * @param params - Parameters for execution passed to the python script (optional).
+     * @param scriptDeps - Scripts that this code depends on (optional).
      * @remarks
      * Reserved `params` are:
      * * `simulateDocument` - Create document and window objects into pyodide's self scope.
      */
-    runCode (code: string, params: SafeObject, scriptDeps: string[]): Promise<RunCodeResult>
+    runCode (code: string, params?: SafeObject, scriptDeps?: string[]): Promise<RunCodeResult>
     /**
      * Load and run the `script` using the given `parameters`.
      * @param name - Name of the script.
      * @param script - Script contents.
-     * @param params - Parameters for execution passed to the python script.
+     * @param params - Parameters for execution passed to the python script (optional).
+     * @param scriptDeps - Scripts that this script depends on (optional).
      * @remarks
      * Reserved `params` are:
      * * `simulateDocument` - Create document and window objects into pyodide's self scope.
      */
-    runScript (name: string, script: string, params: { [key: string]: unknown }): Promise<RunCodeResult>
+    runScript (
+        name: string,
+        script: string,
+        params?: { [key: string]: unknown },
+        scriptDeps?: string[]
+    ): Promise<RunCodeResult>
     /**
      * Update Pyodide input signals arrays to the content of the shared array buffer from the input mutex.
      * @returns True on success, false on failure.

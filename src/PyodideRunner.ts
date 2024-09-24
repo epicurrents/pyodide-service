@@ -19,7 +19,7 @@ import {
 import { loadPyodide } from 'pyodide/pyodide.js'
 import { Log } from 'scoped-ts-log'
 
-import biosignal from './scripts/biosignal.py'
+import biosignal from './scripts/biosignal.py?raw'
 const DEFAULT_SCRIPTS = new Map([
     ['biosignal', biosignal],
 ])

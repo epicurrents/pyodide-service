@@ -45,7 +45,7 @@ declare module 'pyodide/pyodide.js' {
     export function loadPyodide (config: { indexURL: string }): Promise<Pyodide>
 }
 
-declare module '*.py' {
+declare module '*?raw' {
     const content: string
     export default content
 }
