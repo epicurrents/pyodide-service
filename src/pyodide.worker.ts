@@ -17,7 +17,7 @@ import { validateCommissionProps } from '@epicurrents/core/dist/util'
 import { MontageWorker } from '@epicurrents/core/dist/workers'
 import PyodideMontageProcesser from './components/PyodideMontageProcesser'
 import { PythonWorkerCommission, RunCodeResult } from '@epicurrents/pyodide-service/src/types'
-import { Log } from 'scoped-ts-log'
+import { Log } from 'scoped-event-log'
 import { type MontageWorkerCommission } from '@epicurrents/core/dist/types/biosignal'
 
 importScripts("https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js")

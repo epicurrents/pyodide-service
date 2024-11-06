@@ -17,7 +17,7 @@ import {
     type UpdateInputSignalsResponse,
 } from '#types'
 import { loadPyodide } from 'pyodide/pyodide.js'
-import { Log } from 'scoped-ts-log'
+import { Log } from 'scoped-event-log'
 
 import biosignal from './scripts/biosignal.py?raw'
 const DEFAULT_SCRIPTS = new Map([

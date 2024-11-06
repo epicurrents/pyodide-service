@@ -21,7 +21,7 @@ import {
     type SignalCachePart,
     type SignalPart,
 } from '@epicurrents/core/dist/types'
-import { Log } from 'scoped-ts-log'
+import { Log } from 'scoped-event-log'
 import { PythonSignalDataReader } from '#types/biosignal'
 
 const SCOPE = "MontageProcesser"

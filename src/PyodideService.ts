@@ -7,7 +7,7 @@
 
 import { GenericService } from '@epicurrents/core'
 import { type SetupMutexResponse, type WorkerResponse } from '@epicurrents/core/dist/types'
-import { Log } from 'scoped-ts-log'
+import { Log } from 'scoped-event-log'
 import { type MutexExportProperties } from 'asymmetric-io-mutex'
 
 import biosignal from './scripts/biosignal.py?raw'
