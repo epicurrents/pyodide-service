@@ -129,7 +129,7 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
                 filterStart, filterEnd,
                 rangeStart, rangeEnd,
             } = getFilterPadding(
-                [cacheStart, cacheEnd] || [],
+                [cacheStart, cacheEnd],
                 maxSamples,
                 chan,
                 this._settings,
