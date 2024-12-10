@@ -25,6 +25,7 @@
   ],
   "scripts": {
     "build": "npm run build:umd && npm run build:tsc && npm run copy:scripts",
+    "build:docs": "npx typedoc",
     "build:tsc": "node node_modules/typescript/bin/tsc && node node_modules/tsconfig-replace-paths/dist/commonjs --project tsconfig.json",
     "build:umd": "node node_modules/webpack/bin/webpack.js --progress --stats-error-details --config webpack.config.js",
     "copy:scripts": "node copy-scripts.js",
@@ -43,7 +44,7 @@
   "author": "Sampsa Lohi",
   "license": "Apache-2.0",
   "dependencies": {
-    "@epicurrents/core": "^0.2.0-1",
+    "@epicurrents/core": "^0.3.0-1",
     "asymmetric-io-mutex": "^0.9.0",
     "pyodide": "0.25.0",
     "scoped-event-log": "^2.0.0"
@@ -59,7 +60,9 @@
     "eslint": "^8.49.0",
     "ts-loader": "^9.3.0",
     "tsconfig-replace-paths": "^0.0.14",
-    "typescript": "^4.7.3",
+    "typedoc": "^0.27.4",
+    "typedoc-plugin-missing-exports": "^3.1.0",
+    "typescript": "5.6",
     "webpack": "^5.73.0",
     "webpack-bundle-analyzer": "^4.5.0",
     "webpack-cli": "^4.9.2",

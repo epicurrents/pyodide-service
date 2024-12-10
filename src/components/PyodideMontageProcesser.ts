@@ -11,14 +11,13 @@ import {
     getFilterPadding,
     safeObjectFrom,
 } from '@epicurrents/core/dist/util'
-import { 
+import {
     type BiosignalFilters,
     type CommonBiosignalSettings,
     type ConfigChannelFilter,
     type ConfigMapChannels,
     type MontageChannel,
     type SetupChannel,
-    type SignalCachePart,
     type SignalPart,
 } from '@epicurrents/core/dist/types'
 import { Log } from 'scoped-event-log'
@@ -39,7 +38,7 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
     get activeMontage () {
         return this._activeMontage
     }
-    
+
     /**
      * Get montage signals for the given part.
      * @param start - Part start (in seconds, included).
@@ -190,12 +189,12 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
                 end: relEnd,
                 filter_len: filterLen,
                 filters: {
-                    highpass: chan.highpassFilter !== null 
+                    highpass: chan.highpassFilter !== null
                               ? chan.highpassFilter
                               : this._settings.filterChannelTypes[chan.type]?.includes('highpass')
                                 ? this._filters.highpass
                                 : null,
-                    lowpass: chan.lowpassFilter !== null 
+                    lowpass: chan.lowpassFilter !== null
                              ? chan.lowpassFilter
                              : this._settings.filterChannelTypes[chan.type]?.includes('lowpass')
                                ? this._filters.lowpass
@@ -221,7 +220,7 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
         }
         const calculateSigs = await this._runCode(
             `biosignal_calculate_signals()`,
-            safeObjectFrom({ 
+            safeObjectFrom({
                 channels: montageChannels,
                 output: outputSignals,
             })
@@ -251,15 +250,17 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
             })
             return true
         }
-        // Since everything returned by this method will be transferred from the Workerto the main thread,
-        // we should minimize the amount of properties to avoid needless overhead.
-        return montageChannels.map(c => { 
-            return { 
-                data: c.data,
-                originalSamplingRate: c.samplingRate,
-                samplingRate: c.samplingRate,
-            }
-        }) as SignalCachePart['signals']
+        return {
+            start: start,
+            end: end,
+            signals: montageChannels.map(c => {
+                return {
+                    data: c.data,
+                    originalSamplingRate: c.samplingRate,
+                    samplingRate: c.samplingRate,
+                }
+            })
+        }
     }
     /**
      * Get up-to-date input signals from the mutex data cache.
@@ -300,7 +301,7 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
         }
         const result = await this._runCode(
             `biosignal_set_default_filters()`,
-            safeObjectFrom({ 
+            safeObjectFrom({
                 filters: params,
             })
         )
