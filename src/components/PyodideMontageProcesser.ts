@@ -353,3 +353,4 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
         return result
     }
 }
+export { PyodideMontageProcesser}
