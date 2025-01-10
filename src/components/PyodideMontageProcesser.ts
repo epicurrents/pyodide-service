@@ -191,17 +191,17 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
                 filters: {
                     highpass: chan.highpassFilter !== null
                               ? chan.highpassFilter
-                              : this._settings.filterChannelTypes[chan.type]?.includes('highpass')
+                              : this._settings.filterChannelTypes[chan.modality]?.includes('highpass')
                                 ? this._filters.highpass
                                 : null,
                     lowpass: chan.lowpassFilter !== null
                              ? chan.lowpassFilter
-                             : this._settings.filterChannelTypes[chan.type]?.includes('lowpass')
+                             : this._settings.filterChannelTypes[chan.modality]?.includes('lowpass')
                                ? this._filters.lowpass
                                : null,
                     notch: chan.notchFilter !== null
                            ? chan.notchFilter
-                           : this._settings.filterChannelTypes[chan.type]?.includes('notch')
+                           : this._settings.filterChannelTypes[chan.modality]?.includes('notch')
                              ? this._filters.notch
                              : null,
                 },
@@ -209,7 +209,7 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
                 start: relStart,
                 trim_end: rangeEnd - rangeStart + trimStart,
                 trim_start: trimStart,
-                type: chan.type,
+                type: chan.modality,
             })
             montageChannels.push(sigProps)
             outputSignals.push(
