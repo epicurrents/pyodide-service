@@ -15,10 +15,10 @@
 import { CommonBiosignalSettings, WorkerMessage } from '@epicurrents/core/dist/types'
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
 import { MontageWorker } from '@epicurrents/core/dist/workers'
-import PyodideMontageProcesser from './components/PyodideMontageProcesser'
-import { PythonWorkerCommission, RunCodeResult } from '@epicurrents/pyodide-service/src/types'
-import { Log } from 'scoped-ts-log'
-import { type MontageWorkerCommission } from '@epicurrents/core/dist/types/biosignal'
+import PyodideMontageProcesser from '#components/PyodideMontageProcesser'
+import { PythonWorkerCommission, RunCodeResult } from '#types'
+import { Log } from 'scoped-event-log'
+import { type MontageWorkerCommission } from '@epicurrents/core/dist/types'
 
 importScripts("https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js")
 
@@ -106,7 +106,7 @@ export class PyodideWorker extends MontageWorker {
             }
             // For more complex data types, Pyodide returns proxies which are prone to memory leaks.
             const resultIsProxy = !!result && typeof result === 'object'
-            const response = resultIsProxy 
+            const response = resultIsProxy
                             // Convert Map (Pyodide's default conversion type for dict) into Object.
                             // Setting create_proxies to false prevents the creation no nested proxies.
                             ? result.toJs({ dict_converter : Object.fromEntries, create_proxies : false })
