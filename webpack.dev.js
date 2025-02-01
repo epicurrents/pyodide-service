@@ -70,6 +70,7 @@ module.exports = {
         alias: {
             '#root': path.resolve(__dirname, './'),
             '#types': path.resolve(__dirname, 'src', 'types'),
+            'node-fetch': 'isomorphic-fetch',
         },
         symlinks: false
     },
