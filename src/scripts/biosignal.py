@@ -26,7 +26,7 @@ biosignal = {
     'montage': None,
     'output': None,
 }
-""" 
+"""
 Global variables used in these methods.
 - `available_montages`: Dictionary of available montages with the montage name as key and list of channels as value (NYI).
 - `buffers`: List of JS proxies pointing to the shared array buffers holding the input signals, or None if not set. These cannot be directly used but must first be assigned to a numpy array.
@@ -278,21 +278,19 @@ def biosignal_get_signals (channels):
         if chan['end'] > act_len:
             pad_end = chan['end'] - act_len
         start_pos = biosignal['data_pos'] + chan['start'] + pad_start
-        if act[biosignal['data_fields']['updated_start']] > start_pos or act[biosignal['data_fields']['updated_start']] == biosignal['empty_field']:
+        updated_start = act[biosignal['data_fields']['updated_start']]
+        if updated_start > start_pos or updated_start == biosignal['empty_field']:
             # Pyodide does not support multithreading at the time of writing this. If a a request for signals is received before
             # the raw data has not been loaded we cannot simply wait to finish execution once data is available.
             # This is not ideal and should be improved when(/if) Pyodide implements threading.
             # Multithreading issue: https://github.com/pyodide/pyodide/issues/237.
-            return {
-                'success': False,
-                'error': "Requested signals have not been loaded yet."
-            }
+            print('Pyodide: Requested signals have not been loaded yet (signal start %d is out of range).', updated_start)
+            return signals
         end_pos = biosignal['data_pos'] + chan['end'] - pad_end
-        if act[biosignal['data_fields']['updated_end']] < act_len and act[biosignal['data_fields']['updated_end']] < end_pos:
-            return {
-                'success': False,
-                'error': "Requested signals have not been loaded yet."
-            }
+        updated_end = act[biosignal['data_fields']['updated_end']]
+        if updated_end < act_len and updated_end < end_pos:
+            print('Pyodide: Requested signals have not been loaded yet (signal end %d is out of range).', updated_end)
+            return signals
         # Calculate the channel derivation.
         sig_act = np.pad(act[start_pos:end_pos], (pad_start, pad_end), 'constant')
         # Insert possible data gaps.
@@ -418,7 +416,7 @@ def biosignal_set_buffers ():
 def biosignal_set_default_filters ():
     """
     Set new default filter paramaters.
-    
+
     TODO: Precomputing coefficients for commonly used filters may save computing time
     when a large number of signals need to be filtered?
 
@@ -507,7 +505,7 @@ def biosignal_set_filter ():
         return { 'success': True }
     except Exception as e:
         return { 'success': False, 'error': str(e) }
-   
+
 def biosignal_set_montage ():
     """
     Set currently active `montage`.
