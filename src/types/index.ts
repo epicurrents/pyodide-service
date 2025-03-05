@@ -29,15 +29,28 @@ export interface PythonInterpreterService extends Omit<
     */
     loadPackages (packages: string[]): Promise<LoadPackagesResult>
     /**
+     * Post a message to the Python worker.
+     * @param message - Message to send.
+     * @param scriptDeps - Scripts that this code depends on (optional).
+     * @param transferList - Transferable objects to send with the message (optional).
+     */
+    postMessage (message: unknown, scriptDeps?: string[], transferList?: Transferable[]): Promise<void>
+    /**
      * Run the provided piece of `code` with the given parameters.
      * @param code - Python code as a string.
      * @param params - Parameters for execution passed to the python script (optional).
      * @param scriptDeps - Scripts that this code depends on (optional).
+     * @param transferList - Transferable objects to send with the message (optional).
      * @remarks
      * Reserved `params` are:
      * * `simulateDocument` - Create document and window objects into pyodide's self scope.
      */
-    runCode (code: string, params?: SafeObject, scriptDeps?: string[]): Promise<RunCodeResult>
+    runCode (
+        code: string,
+        params?: SafeObject,
+        scriptDeps?: string[],
+        transferList?: Transferable[]
+    ): Promise<RunCodeResult>
     /**
      * Load and run the `script` using the given `parameters`.
      * @param name - Name of the script.

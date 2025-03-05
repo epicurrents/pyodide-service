@@ -5,7 +5,7 @@ Biosignal processing functions. Some of the methods in this file are concepts st
 import numpy as np
 from scipy import signal
 
-biosignal = {
+_biosignal = {
     'available_montages': dict(),
     'buffers': None,
     'data_fields': {
@@ -25,6 +25,8 @@ biosignal = {
     'input': None,
     'montage': None,
     'output': None,
+    'series_canvas': None,
+    'topomap_canvas': None,
 }
 """
 Global variables used in these methods.
@@ -64,12 +66,11 @@ def biosignal_add_montage ():
     -------
     { 'success': bool, 'error': str / str[] (if an error occurred) }
     """
-    global biosignal
     from js import name, channels
     montage = [None]*len(channels)
     for idx, chan in enumerate(channels):
         montage[idx] = chan.to_py()
-    biosignal['available_montages'][name] = montage
+    _biosignal['available_montages'][name] = montage
     return { 'success': True }
 
 def biosignal_calculate_signals ():
@@ -103,9 +104,8 @@ def biosignal_calculate_signals ():
     -------
     { 'success': bool, 'error': str / str[] (if an error occurred) }
     """
-    global biosignal
     from js import channels, output
-    input_sigs = biosignal['input']
+    input_sigs = _biosignal['input']
     if input_sigs is None or len(input_sigs) == 0:
         return {
             'success': False,
@@ -157,9 +157,8 @@ def biosignal_filter_signal (sig, fs, filters = None):
     -------
     { 'success': bool, 'value': Filtered signal (if success), 'error': Error message (if an error occurred) }
     """
-    global biosignal
     if filters is None:
-        filters = biosignal['filters']
+        filters = _biosignal['filters']
     try:
         if filters is not None:
             # Apply each filter individually.
@@ -216,8 +215,8 @@ def biosignal_get_filter_coefficients (btype, Wn, fs, N=None):
     -------
     SOS filter coefficients.
     """
-    N_pass = biosignal['filters']['N_pass']
-    N_stop = biosignal['filters']['N_stop']
+    N_pass = _biosignal['filters']['N_pass']
+    N_stop = _biosignal['filters']['N_stop']
     if btype == 'highpass':
         return signal.butter(N or N_pass, Wn, 'highpass', output='sos', fs=fs)
     if btype == 'lowpass':
@@ -254,8 +253,7 @@ def biosignal_get_signals (channels):
     -------
     { 'success': bool, 'error': str / str[] (if an error occurred) }
     """
-    global biosignal
-    input_sigs = biosignal['input']
+    input_sigs = _biosignal['input']
     # Cache common ref values (speeds up average reference calculations).
     common_ref = {}
     # Cache filter coefficients by sampling rate and filter frequency.
@@ -268,8 +266,8 @@ def biosignal_get_signals (channels):
             # Empty channel.
             continue
         act = input_sigs[chan['active']]
-        act_len = len(act) - biosignal['data_pos']
-        sig_fs = act[biosignal['data_fields']['sampling_rate']]
+        act_len = len(act) - _biosignal['data_pos']
+        sig_fs = act[_biosignal['data_fields']['sampling_rate']]
         # Store possibly needed pad amounts for range that exceeds imput signal range.
         pad_start = 0
         if chan['start'] < 0:
@@ -277,17 +275,17 @@ def biosignal_get_signals (channels):
         pad_end = 0
         if chan['end'] > act_len:
             pad_end = chan['end'] - act_len
-        start_pos = biosignal['data_pos'] + chan['start'] + pad_start
-        updated_start = act[biosignal['data_fields']['updated_start']]
-        if updated_start > start_pos or updated_start == biosignal['empty_field']:
+        start_pos = _biosignal['data_pos'] + chan['start'] + pad_start
+        updated_start = act[_biosignal['data_fields']['updated_start']]
+        if updated_start > start_pos or updated_start == _biosignal['empty_field']:
             # Pyodide does not support multithreading at the time of writing this. If a a request for signals is received before
             # the raw data has not been loaded we cannot simply wait to finish execution once data is available.
             # This is not ideal and should be improved when(/if) Pyodide implements threading.
             # Multithreading issue: https://github.com/pyodide/pyodide/issues/237.
             print('Pyodide: Requested signals have not been loaded yet (signal start %d is out of range).', updated_start)
             return signals
-        end_pos = biosignal['data_pos'] + chan['end'] - pad_end
-        updated_end = act[biosignal['data_fields']['updated_end']]
+        end_pos = _biosignal['data_pos'] + chan['end'] - pad_end
+        updated_end = act[_biosignal['data_fields']['updated_end']]
         if updated_end < act_len and updated_end < end_pos:
             print('Pyodide: Requested signals have not been loaded yet (signal end %d is out of range).', updated_end)
             return signals
@@ -399,13 +397,12 @@ def biosignal_set_buffers ():
     -------
     { 'success': bool, 'error': str / str[] (if an error occurred) }
     """
-    global biosignal
     try:
         from js import buffers
-        biosignal['buffers'] = buffers
-        biosignal['input'] = [None]*len(biosignal['buffers'])
-        for idx, buf in enumerate(biosignal['buffers']):
-            biosignal['input'][idx] = np.asarray(buf.to_py(), dtype='f')
+        _biosignal['buffers'] = buffers
+        _biosignal['input'] = [None]*len(_biosignal['buffers'])
+        for idx, buf in enumerate(_biosignal['buffers']):
+            _biosignal['input'][idx] = np.asarray(buf.to_py(), dtype='f')
         return { 'success': True }
     except Exception as e:
         return {
@@ -434,7 +431,6 @@ def biosignal_set_default_filters ():
     -------
     { 'success': bool, 'error': str / str[] (if an error occurred) }
     """
-    global biosignal
     try:
         from js import filters
         params = filters.to_py()
@@ -445,9 +441,9 @@ def biosignal_set_default_filters ():
                     return { 'success': False, 'error': "Highpass filter is missing parameter 'Wn'." }
                 if 'N' not in highpass:
                     highpass['N'] = None
-                biosignal['filters']['highpass'] = highpass
+                _biosignal['filters']['highpass'] = highpass
             else:
-                biosignal['filters']['highpass'] = None
+                _biosignal['filters']['highpass'] = None
         if 'lowpass' in params:
             lowpass = params['lowpass']
             if lowpass is not None:
@@ -455,9 +451,9 @@ def biosignal_set_default_filters ():
                     return { 'success': False, 'error': "Lowpass filter is missing parameter 'Wn'." }
                 if 'N' not in lowpass:
                     lowpass['N'] = None
-                biosignal['filters']['lowpass'] = lowpass
+                _biosignal['filters']['lowpass'] = lowpass
             else:
-                biosignal['filters']['lowpass'] = None
+                _biosignal['filters']['lowpass'] = None
         if 'notch' in params:
             notch = params['notch']
             if notch is not None:
@@ -465,9 +461,9 @@ def biosignal_set_default_filters ():
                     return { 'success': False, 'error': "Notch filter is missing parameter 'Wn'." }
                 if 'N' not in notch:
                     notch['N'] = None
-                biosignal['filters']['notch'] = notch
+                _biosignal['filters']['notch'] = notch
             else:
-                biosignal['filters']['notch'] = None
+                _biosignal['filters']['notch'] = None
         return { 'success': True }
     except Exception as e:
         return { 'success': False, 'error': str(e) }
@@ -493,12 +489,11 @@ def biosignal_set_filter ():
     -------
     { 'success': bool, 'error': str / str[] (if an error occurred) }
     """
-    global biosignal
     try:
         from js import Wn, btype, N
-        if btype not in biosignal['filters']:
+        if btype not in _biosignal['filters']:
             return { 'success': False, 'error': "Uknown filter type '" + str(btype) + "'." }
-        biosignal['filters'][btype] = {
+        _biosignal['filters'][btype] = {
             'Wn': Wn,
             'N': N or None,
         }
@@ -521,14 +516,13 @@ def biosignal_set_montage ():
     -------
     { 'success': bool, 'error': str / str[] (if an error occurred) }
     """
-    global biosignal
     from js import name
-    if name not in biosignal['available_montages']:
+    if name not in _biosignal['available_montages']:
         return {
             'success': False,
             'error': "Cannot set montage, '" + name + "' cannot be found."
         }
-    biosignal['montage'] = biosignal['available_montages'][name]
+    _biosignal['montage'] = _biosignal['available_montages'][name]
     return { 'success': True }
 
 def biosignal_set_montage_filters ():
@@ -548,14 +542,13 @@ def biosignal_set_montage_filters ():
     -------
     { 'success': bool, 'error': str / str[] (if an error occurred) }
     """
-    global biosignal
     from js import montage, filters
-    if montage not in biosignal['available_montages']:
+    if montage not in _biosignal['available_montages']:
         return {
             'success': False,
             'error': "Cannot set filters for montage, '" + montage + "' cannot be found."
         }
-    mtg = biosignal['available_montages'][montage]
+    mtg = _biosignal['available_montages'][montage]
     flt = filters.to_py()
     for idx, chan in enumerate(mtg):
         chan['filters']['highpass']= flt[idx]['highpass']
@@ -578,18 +571,67 @@ def biosignal_set_output ():
     -------
     { 'success': bool, 'error': str / str[] (if an error occurred) }
     """
-    global biosignal
     try:
         from js import buffers
         output = [None]*len(buffers)
         for idx, buf in enumerate(buffers):
             output[idx] = buf
-        biosignal['output'] = output
+        _biosignal['output'] = output
         return { 'success': True }
     except Exception as e:
         return {
             'success': False,
             'error': ['Failed to set output buffer:', str(e)]
+        }
+
+def set_series_canvas ():
+    """
+    Set the canvas element for the series plot.
+
+    Parameters
+    ----------
+    Parameters required to be present from JS side:
+
+    canvas : Canvas
+        Canvas element to draw the series plot on.
+
+    Returns
+    -------
+    { 'success': bool, 'error': str / str[] (if an error occurred) }
+    """
+    try:
+        from js import canvas
+        _biosignal['series_canvas'] = canvas
+        return { 'success': True }
+    except Exception as e:
+        return {
+            'success': False,
+            'error': ['Failed to set series canvas:', str(e)]
+        }
+
+def biosignal_set_topomap_canvas ():
+    """
+    Set the canvas element for the topomap plot.
+
+    Parameters
+    ----------
+    Parameters required to be present from JS side:
+
+    canvas : Canvas
+        Canvas element to draw the topomap plot on.
+
+    Returns
+    -------
+    { 'success': bool, 'error': str / str[] (if an error occurred) }
+    """
+    try:
+        from js import canvas
+        _biosignal['topomap_canvas'] = canvas
+        return { 'success': True }
+    except Exception as e:
+        return {
+            'success': False,
+            'error': ['Failed to set topomap canvas:', str(e)]
         }
 
 def biosignal_update_input ():
@@ -600,12 +642,11 @@ def biosignal_update_input ():
     -------
     True on success, False on error.
     """
-    global biosignal
-    if biosignal['input'] is None:
+    if _biosignal['input'] is None:
         return False
     try:
-        for idx, buf in enumerate(biosignal['buffers']):
-            buf.assign_to(biosignal['input'][idx])
+        for idx, buf in enumerate(_biosignal['buffers']):
+            buf.assign_to(_biosignal['input'][idx])
         return True
     except Exception as e:
         False

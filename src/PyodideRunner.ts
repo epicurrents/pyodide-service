@@ -92,6 +92,11 @@ export default class PyodideRunner extends GenericService implements PythonInter
         return true
     }
 
+    async postMessage (_message: unknown, _transferList?: Transferable[]) {
+        // This is not a worker, no messages to post.
+        return
+    }
+
     /**
      * Run the provided piece of `code` with the given `parameters`.
      * @param code - Python code as a string.
@@ -219,7 +224,7 @@ export default class PyodideRunner extends GenericService implements PythonInter
             error: `Not yet implemented.`
         }
     }
-    
+
     async updateInputSignals () {
         await this.initialSetup
         const commission = this._commissionWorker('update-input-signals')

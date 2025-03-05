@@ -54,6 +54,26 @@ export default class PyodideService extends GenericService implements PythonInte
         worker.addEventListener('message', this.handleWorkerResponse.bind(this))
     }
 
+    async awaitDependecies (dependencies: string[]) {
+        const invalidScriptStates = ['not_loaded', 'error']
+        for (const dep of dependencies) {
+            if (this._scripts[dep]) {
+                if (invalidScriptStates.includes(this._scripts[dep].state)) {
+                    Log.error(`Cannot run code, dependency script has not loaded yet.`, SCOPE)
+                    return false
+                } else if (this._scripts[dep].state === 'loading') {
+                    // If any dependency is still loading, wait for all to load.
+                    const results = await Promise.all(dependencies.map(dep => this.awaitAction(`script:${dep}`)))
+                    if (results.some(result => !result)) {
+                        Log.error(`Dependency script loading failed.`, SCOPE)
+                        return false
+                    }
+                }
+            }
+        }
+        return true
+    }
+
     handleWorkerResponse (message: WorkerResponse) {
         const data = message.data
         if (!data || !data.action) {
@@ -101,23 +121,34 @@ export default class PyodideService extends GenericService implements PythonInte
         return response as boolean
     }
 
-    async runCode (code: string, params: { [key: string]: unknown } = {}, scriptDeps: string[] = []) {
+    async postMessage (message: unknown, scriptDeps: string[] = [], transferList?: Transferable[]) {
         await this.initialSetup
-        const invalidScriptStates = ['not_loaded', 'error']
-        for (const dep of scriptDeps) {
-            if (this._scripts[dep]) {
-                if (invalidScriptStates.includes(this._scripts[dep].state)) {
-                    Log.error(`Cannot run code, dependency script has not loaded yet.`, SCOPE)
-                    return { success: false }
-                } else if (this._scripts[dep].state === 'loading') {
-                    Log.debug(`Waiting for dependency script '${dep}' to load before executing code.`, SCOPE)
-                    if (!(await this.awaitAction(`script:${dep}`))) {
-                        Log.error(`Cannot run code, dependency script loading failed.`, SCOPE)
-                        return { success: false }
-                    } else {
-                        Log.debug(`Script ${dep} loaded, executing code.`, SCOPE)
-                    }
-                }
+        if (scriptDeps.length) {
+            if (!(await this.awaitDependecies(scriptDeps))) {
+                Log.error(`Cannot post message, dependency script loading failed.`, SCOPE)
+                return
+            }
+        }
+        if (this._worker) {
+            if (transferList) {
+                this._worker.postMessage(message, transferList)
+            } else {
+                this._worker.postMessage(message)
+            }
+        }
+    }
+
+    async runCode (
+        code: string,
+        params: { [key: string]: unknown } = {},
+        scriptDeps: string[] = [],
+        transferList?: Transferable[]
+    ) {
+        await this.initialSetup
+        if (!(await this.awaitDependecies(scriptDeps))) {
+            return {
+                success: false,
+                error: `Cannot run code, dependency script loading failed.`
             }
         }
         const commission = this._commissionWorker(
@@ -125,7 +156,9 @@ export default class PyodideService extends GenericService implements PythonInte
             new Map<string, unknown>([
                 ['code', code],
                 ...Object.entries(params)
-            ])
+            ]),
+            undefined,
+            { transferList }
         )
         return commission.promise as Promise<RunCodeResult>
     }
