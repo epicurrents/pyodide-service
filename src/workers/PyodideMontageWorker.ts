@@ -333,7 +333,7 @@ export class PyodideMontageWorker extends MontageWorker {
         }
         if (!this._settings) {
             this._namespace = data.namespace
-            this._settings = data.settings.modules[data.namespace] as CommonBiosignalSettings
+            this._settings = data.settings.modules[data.namespace] as unknown as CommonBiosignalSettings
         }
         if (!this._montage) {
             this._montage = new PyodideMontageProcesser(this._runPythonCode, this._settings)
