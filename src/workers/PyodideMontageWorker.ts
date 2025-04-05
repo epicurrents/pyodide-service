@@ -132,6 +132,14 @@ export class PyodideMontageWorker extends MontageWorker {
         }
     }
 
+    async clearMontage (msgData?: WorkerMessage['data']) {
+        await this._montage?.releaseCache()
+        this._montage = null
+        if (msgData) {
+            this._success(msgData)
+        }
+    }
+
     async getSignals(msgData: WorkerMessage['data']): Promise<boolean> {
         const data = validateCommissionProps(
             msgData as MontageWorkerCommission['get-signals'],
@@ -335,7 +343,10 @@ export class PyodideMontageWorker extends MontageWorker {
             this._namespace = data.namespace
             this._settings = data.settings.modules[data.namespace] as unknown as CommonBiosignalSettings
         }
-        if (!this._montage) {
+        if (this._montage) {
+            // The worker can only accommodate one montage at a time.
+            await this.clearMontage()
+        } else {
             this._montage = new PyodideMontageProcesser(this._runPythonCode, this._settings)
         }
         this._montage.setupChannels(data.montage, data.config, data.setupChannels)
@@ -343,7 +354,6 @@ export class PyodideMontageWorker extends MontageWorker {
     }
 
     async setupWorker (msgData: WorkerMessage['data']) {
-        this._initialized = true
         const data = validateCommissionProps(
             msgData as PythonWorkerCommission['setup-worker'],
             {
@@ -358,6 +368,7 @@ export class PyodideMontageWorker extends MontageWorker {
         for (const resolve of this._loadWaiters) {
             resolve()
         }
+        this._initialized = true
         return this._success(msgData)
     }
     /**
@@ -366,7 +377,10 @@ export class PyodideMontageWorker extends MontageWorker {
      * @returns True on success, false on failure.
      */
     async updateInputSignals (msgData: WorkerMessage['data']) {
-        this._initialized = true
+        if (!this._montage) {
+            // Montage may not be set up if the current modality does not support SAB/Pyodide.
+            return this._failure(msgData, 'Cannot update input signals, montage is not set up.')
+        }
         const data = validateCommissionProps(
             msgData,
             {},
