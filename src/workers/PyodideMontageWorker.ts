@@ -33,9 +33,12 @@ export class PyodideMontageWorker extends MontageWorker {
     constructor () {
         super()
         // Extend action map with Python commissions.
+        // We also need to remap any super class actions to methods redefined in this class.
         this.extendActionMap([
+            ['get-signals', this.getSignals],
             ['load-packages', this.loadPackages],
             ['run-code', this.runCode],
+            ['set-filters', this.setFilters],
             ['setup-input-mutex', this.setupInputMutex],
             ['setup-montage', this.setupMontage],
             ['setup-worker', this.setupWorker],
@@ -133,6 +136,7 @@ export class PyodideMontageWorker extends MontageWorker {
     }
 
     async clearMontage (msgData?: WorkerMessage['data']) {
+        Log.debug(`Clearing current montage.`, SCOPE)
         await this._montage?.releaseCache()
         this._montage = null
         if (msgData) {
@@ -304,7 +308,7 @@ export class PyodideMontageWorker extends MontageWorker {
             data.recordingDuration
         )
         if (cacheSetup) {
-            Log.debug(`Mutex setup in Pyodide complete.`, SCOPE)
+            Log.debug(`Mutex setup complete.`, SCOPE)
             // Set the mutex input data buffers as signal source in Pyodide.
             const result = await this._runPythonCode(
                 'biosignal_set_buffers()',
@@ -343,10 +347,9 @@ export class PyodideMontageWorker extends MontageWorker {
             this._namespace = data.namespace
             this._settings = data.settings.modules[data.namespace] as unknown as CommonBiosignalSettings
         }
-        if (this._montage) {
-            // The worker can only accommodate one montage at a time.
-            await this.clearMontage()
-        } else {
+        if (!this._montage) {
+            // Create new montage processer.
+            Log.debug(`Creating a new processer for montage ${data.montage}.`, SCOPE)
             this._montage = new PyodideMontageProcesser(this._runPythonCode, this._settings)
         }
         this._montage.setupChannels(data.montage, data.config, data.setupChannels)
@@ -379,13 +382,9 @@ export class PyodideMontageWorker extends MontageWorker {
     async updateInputSignals (msgData: WorkerMessage['data']) {
         if (!this._montage) {
             // Montage may not be set up if the current modality does not support SAB/Pyodide.
-            return this._failure(msgData, 'Cannot update input signals, montage is not set up.')
+            return this._failure(msgData, 'Cannot update input signals in Pyodide worker, montage is not set up.')
         }
-        const data = validateCommissionProps(
-            msgData,
-            {},
-            this._montage !== null
-        )
+        const data = validateCommissionProps(msgData, {})
         if (!data) {
             return this._failure(msgData)
         }

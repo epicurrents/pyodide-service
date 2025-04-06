@@ -81,15 +81,42 @@ export default class PyodideService extends GenericService implements PythonInte
         }
         const commission = this._getCommissionForMessage(message)
         if (commission) {
-            if (data.action === 'run-code') {
-                if (data.success) {
-                    commission.resolve(data)
-                } else if (commission.reject) {
-                    commission.reject(data.error as string)
+            switch (data.action) {
+                case 'load-packages': {
+                    if (data.success) {
+                        commission.resolve(data)
+                    } else if (commission.reject) {
+                        commission.reject(data.error as string)
+                    }
+                    return true
                 }
-                return true
-            } else {
-                return super._handleWorkerCommission(message)
+                case 'run-code': {
+                    if (data.success) {
+                        commission.resolve(data)
+                    } else if (commission.reject) {
+                        commission.reject(data.error as string)
+                    }
+                    return true
+                }
+                case 'setup-input-mutex': {
+                    if (data.success) {
+                        commission.resolve(data)
+                    } else if (commission.reject) {
+                        commission.reject(data.error as string)
+                    }
+                    return true
+                }
+                case 'update-input-signals': {
+                    if (data.success) {
+                        commission.resolve(data)
+                    } else if (commission.reject) {
+                        commission.reject(data.error as string)
+                    }
+                    return true
+                }
+                default: {
+                    return super._handleWorkerCommission(message)
+                }
             }
         }
         return false
