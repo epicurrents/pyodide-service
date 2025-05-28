@@ -23,7 +23,7 @@ import {
 import { Log } from 'scoped-event-log'
 import { PythonSignalDataReader } from '#types/biosignal'
 
-const SCOPE = "MontageProcesser"
+const SCOPE = "PyodideMontageProcesser"
 
 export default class PyodideMontageProcesser extends MontageProcesser implements PythonSignalDataReader {
     protected _activeMontage = ''
