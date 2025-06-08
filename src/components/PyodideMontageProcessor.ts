@@ -5,7 +5,7 @@
  * @license    Apache-2.0
  */
 
-import { MontageProcesser } from '@epicurrents/core/dist/assets'
+import { MontageProcessor } from '@epicurrents/core/dist/assets'
 import {
     shouldDisplayChannel,
     getFilterPadding,
@@ -25,7 +25,7 @@ import { PythonSignalDataReader } from '#types/biosignal'
 
 const SCOPE = "PyodideMontageProcesser"
 
-export default class PyodideMontageProcesser extends MontageProcesser implements PythonSignalDataReader {
+export default class PyodideMontageProcessor extends MontageProcessor implements PythonSignalDataReader {
     protected _activeMontage = ''
     protected _montages = new Map<string, MontageChannel[]>()
     protected _runCode: RunPythonCode
@@ -97,7 +97,7 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
         // Check for possible gaps in this range.
         const filterRangeStart = Math.max(cacheStart - padding, 0)
         const filterRangeEnd = Math.min(cacheEnd + padding, this._totalDataLength)
-        const dataGaps = this.getDataGaps([filterRangeStart, filterRangeEnd], true)
+        const dataGaps = this.getInterruptions([filterRangeStart, filterRangeEnd], true)
         channel_loop:
         for (let i=0; i<channels.length; i++) {
             const chan = channels[i]
@@ -353,4 +353,4 @@ export default class PyodideMontageProcesser extends MontageProcesser implements
         return result
     }
 }
-export { PyodideMontageProcesser}
+export { PyodideMontageProcessor}

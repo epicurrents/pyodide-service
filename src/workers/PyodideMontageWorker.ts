@@ -17,7 +17,7 @@ import type {
     MontageWorkerCommission,
     WorkerMessage,
 } from '@epicurrents/core/dist/types'
-import PyodideMontageProcesser from '#components/PyodideMontageProcesser'
+import PyodideMontageProcesser from '#root/src/components/PyodideMontageProcessor'
 import type { PythonWorkerCommission, RunCodeResult } from '#types'
 import { Log } from 'scoped-event-log'
 

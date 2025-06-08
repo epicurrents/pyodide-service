@@ -1,4 +1,4 @@
-import PyodideMontageProcesser from './PyodideMontageProcesser'
+import PyodideMontageProcessor from './PyodideMontageProcessor'
 export {
-    PyodideMontageProcesser,
+    PyodideMontageProcessor,
 }
