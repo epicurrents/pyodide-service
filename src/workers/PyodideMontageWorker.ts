@@ -149,8 +149,8 @@ export class PyodideMontageWorker extends MontageWorker {
             msgData as MontageWorkerCommission['get-signals'],
             {
                 range: ['Number', 'Number'],
-                config: ['Object', 'undefined'],
-                montage: ['String', 'undefined'],
+                config: 'Object?',
+                montage: 'String?',
             },
             this._montage !== null
         )
@@ -360,7 +360,7 @@ export class PyodideMontageWorker extends MontageWorker {
         const data = validateCommissionProps(
             msgData as PythonWorkerCommission['setup-worker'],
             {
-                config: ['Object', 'undefined'],
+                config: 'Object?',
             }
         )
         if (!data) {

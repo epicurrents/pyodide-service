@@ -216,7 +216,7 @@ export class PyodideWorker extends BaseWorker {
         const data = validateCommissionProps(
             msgData as PythonWorkerCommission['setup-worker'],
             {
-                config: ['Object', 'undefined'],
+                config: 'Object?',
             }
         )
         if (!data) {

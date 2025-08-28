@@ -282,12 +282,12 @@ def biosignal_get_signals (channels):
             # the raw data has not been loaded we cannot simply wait to finish execution once data is available.
             # This is not ideal and should be improved when(/if) Pyodide implements threading.
             # Multithreading issue: https://github.com/pyodide/pyodide/issues/237.
-            print('Pyodide: Requested signals have not been loaded yet (signal start %d is out of range).', updated_start)
+            print('Pyodide: Requested signals have not been loaded yet (signal start ' + str(updated_start) + ' is out of range).')
             return signals
         end_pos = _biosignal['data_pos'] + chan['end'] - pad_end
         updated_end = act[_biosignal['data_fields']['updated_end']]
         if updated_end < act_len and updated_end < end_pos:
-            print('Pyodide: Requested signals have not been loaded yet (signal end %d is out of range).', updated_end)
+            print('Pyodide: Requested signals have not been loaded yet (signal end ' + str(updated_end) + ' is out of range).')
             return signals
         # Calculate the channel derivation.
         sig_act = np.pad(act[start_pos:end_pos], (pad_start, pad_end), 'constant')
@@ -412,7 +412,7 @@ def biosignal_set_buffers ():
 
 def biosignal_set_default_filters ():
     """
-    Set new default filter paramaters.
+    Set new default filter parameters.
 
     TODO: Precomputing coefficients for commonly used filters may save computing time
     when a large number of signals need to be filtered?
