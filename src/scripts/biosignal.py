@@ -41,10 +41,47 @@ Global variables used in these methods.
     - `notch`: Critical frequency of the notch filter, or None if not set.
     - `N_pass`: Default Butterworth filter N value for bandpass type filters.
     - `N_stop`: Default Butterworth filter N value for bandstop type filters.
-- `input`: List of input signals as 1d numpy arrays, or None if not set. These are the float32 views of the data in the signal array buffers.
+- `input`: List of per-channel float32 numpy arrays mirroring the SAB content for each channel, or None if `biosignal_set_buffers` has not been called.
+   Each entry is allocated lazily on first access by `_ensure_input_array(idx)`; only the channel-and-range slices that a compute step actually touches are copied from the live SAB into this array (see `_refresh_channel_range`).
+   Unrefreshed positions hold zeros — every read path must refresh its required range first.
 - `montage`: Currently active montage from `available_montages`, or None if not set (NYI).
 - `output`: List of output signals where processing results should be written, or None if not set.
 """
+
+def _ensure_input_array (channel_idx):
+    """Lazily allocate the full-channel-sized numpy backing for a single channel.
+
+    `_biosignal['input']` starts as a list of `None`s after `biosignal_set_buffers`;
+    each entry is materialised on first access here. Allocation is full-channel size
+    so existing absolute-index access in `biosignal_get_signals` keeps working unchanged.
+    Unrefreshed positions hold zeros — refresh the relevant slice before reading.
+    """
+    arr = _biosignal['input'][channel_idx]
+    if arr is None:
+        buf = _biosignal['buffers'][channel_idx]
+        arr = np.zeros(len(buf), dtype=np.float32)
+        _biosignal['input'][channel_idx] = arr
+    return arr
+
+def _refresh_channel_range (channel_idx, start, end):
+    """Copy the metadata header (`updated_start` / `updated_end` etc.) and the requested
+    data range `[start:end]` from the live SAB into the channel's numpy backing.
+
+    Pyodide 0.25 cannot alias an external SharedArrayBuffer into Python-visible memory,
+    so every refresh is a copy. The header must always be refreshed so load-status checks
+    in `biosignal_get_signals` see live values.
+    """
+    target = _ensure_input_array(channel_idx)
+    buf = _biosignal['buffers'][channel_idx]
+    header_len = _biosignal['data_pos']
+    # Header (sampling_rate, updated_start, updated_end) — small, always refreshed.
+    buf.subarray(0, header_len).assign_to(target[0:header_len])
+    # Data range — clamp to SAB bounds; callers handle out-of-bounds via np.pad.
+    buf_len = len(buf)
+    s = max(int(start), header_len)
+    e = min(int(end), buf_len)
+    if e > s:
+        buf.subarray(s, e).assign_to(target[s:e])
 
 def biosignal_add_montage ():
     """
@@ -253,6 +290,8 @@ def biosignal_get_signals (channels):
     -------
     { 'success': bool, 'error': str / str[] (if an error occurred) }
     """
+    if _biosignal['buffers'] is None or _biosignal['input'] is None:
+        return [None]*len(channels)
     input_sigs = _biosignal['input']
     # Cache common ref values (speeds up average reference calculations).
     common_ref = {}
@@ -261,13 +300,23 @@ def biosignal_get_signals (channels):
     lp_coeffs = {}
     notch_coeffs = {}
     signals = [None]*len(channels)
+    # Per-call dedup of slice refreshes: when many montage channels share an active or
+    # reference at the same range (e.g. average reference), copy that slice only once.
+    refreshed = set()
+    def _refresh(ch_idx, s, e):
+        key = (ch_idx, s, e)
+        if key in refreshed:
+            return
+        _refresh_channel_range(ch_idx, s, e)
+        refreshed.add(key)
     for idx, chan in enumerate(channels):
         if 'active' not in chan:
             # Empty channel.
             continue
-        act = input_sigs[chan['active']]
-        act_len = len(act) - _biosignal['data_pos']
-        sig_fs = act[_biosignal['data_fields']['sampling_rate']]
+        # Determine the SAB range needed for this derivation (active and references share it).
+        # Use the buffer length directly so we don't depend on `act` being allocated yet.
+        buf_len = len(_biosignal['buffers'][chan['active']])
+        act_len = buf_len - _biosignal['data_pos']
         # Store possibly needed pad amounts for range that exceeds imput signal range.
         pad_start = 0
         if chan['start'] < 0:
@@ -276,6 +325,15 @@ def biosignal_get_signals (channels):
         if chan['end'] > act_len:
             pad_end = chan['end'] - act_len
         start_pos = _biosignal['data_pos'] + chan['start'] + pad_start
+        end_pos = _biosignal['data_pos'] + chan['end'] - pad_end
+        # Slice-refresh active and reference channels before any read. The header
+        # (sampling_rate / updated_start / updated_end) is always refreshed inside
+        # `_refresh_channel_range`, so the load-status check below sees live values.
+        _refresh(chan['active'], start_pos, end_pos)
+        for ref_idx in chan['reference']:
+            _refresh(ref_idx, start_pos, end_pos)
+        act = input_sigs[chan['active']]
+        sig_fs = act[_biosignal['data_fields']['sampling_rate']]
         updated_start = act[_biosignal['data_fields']['updated_start']]
         if updated_start > start_pos or updated_start == _biosignal['empty_field']:
             # Pyodide does not support multithreading at the time of writing this. If a a request for signals is received before
@@ -284,7 +342,6 @@ def biosignal_get_signals (channels):
             # Multithreading issue: https://github.com/pyodide/pyodide/issues/237.
             print('Pyodide: Requested signals have not been loaded yet (signal start ' + str(updated_start) + ' is out of range).')
             return signals
-        end_pos = _biosignal['data_pos'] + chan['end'] - pad_end
         updated_end = act[_biosignal['data_fields']['updated_end']]
         if updated_end < act_len and updated_end < end_pos:
             print('Pyodide: Requested signals have not been loaded yet (signal end ' + str(updated_end) + ' is out of range).')
@@ -400,9 +457,10 @@ def biosignal_set_buffers ():
     try:
         from js import buffers
         _biosignal['buffers'] = buffers
+        # Lazy per-channel allocation: each entry materialises on first access via
+        # `_ensure_input_array`. Channels never touched by a compute step (e.g. a trend that
+        # only reads two derivations) never allocate their full-channel numpy buffer.
         _biosignal['input'] = [None]*len(_biosignal['buffers'])
-        for idx, buf in enumerate(_biosignal['buffers']):
-            _biosignal['input'][idx] = np.asarray(buf.to_py(), dtype='f')
         return { 'success': True }
     except Exception as e:
         return {
@@ -634,19 +692,37 @@ def biosignal_set_topomap_canvas ():
             'error': ['Failed to set topomap canvas:', str(e)]
         }
 
-def biosignal_update_input ():
+def biosignal_refresh_channels ():
     """
-    Update `input` to the data contained in `buffers`.
+    Eagerly refresh a specified set of channel-and-range slices in `input` from the live SAB.
+
+    `biosignal_get_signals` already refreshes the slice it needs on demand, so callers that
+    consume signals through that entry point need not call this. Use this primitive for
+    workloads that read the same channel repeatedly in many small windows (e.g. trend
+    computation scanning a full channel across many epochs, or source-localization epoch
+    extraction across scattered event timestamps) — preloading the full needed range once
+    avoids the per-call refresh overhead of slice copies inside the inner loop.
+
+    JS params
+    ---------
+    specs : list of [channel_idx, start, end]
+        Each entry triggers a slice refresh of `input[channel_idx][start:end]` from the SAB.
+        The metadata header is always refreshed alongside each entry. `start` may be less
+        than the data-position offset and `end` may exceed the channel length — both are
+        clamped to valid SAB bounds, and out-of-bounds positions retain the zeros from
+        lazy allocation (callers handle their own padding).
 
     Returns
     -------
-    True on success, False on error.
+    { 'success': bool, 'error': str (if an error occurred) }
     """
-    if _biosignal['input'] is None:
-        return False
+    if _biosignal['buffers'] is None or _biosignal['input'] is None:
+        return { 'success': False, 'error': 'Buffers have not been set.' }
     try:
-        for idx, buf in enumerate(_biosignal['buffers']):
-            buf.assign_to(_biosignal['input'][idx])
-        return True
+        from js import specs
+        specs_py = specs.to_py()
+        for entry in specs_py:
+            _refresh_channel_range(int(entry[0]), int(entry[1]), int(entry[2]))
+        return { 'success': True }
     except Exception as e:
-        False
+        return { 'success': False, 'error': str(e) }

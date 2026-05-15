@@ -19,7 +19,6 @@ import {
     type PythonInterpreterService,
     type RunCodeResult,
     type ScriptState,
-    type UpdateInputSignalsResponse,
 } from '#types'
 const DEFAULT_SCRIPTS = new Map([
     ['biosignal', biosignal],
@@ -99,14 +98,6 @@ export default class PyodideService extends GenericService implements PythonInte
                     return true
                 }
                 case 'setup-input-mutex': {
-                    if (data.success) {
-                        commission.resolve(data)
-                    } else if (commission.reject) {
-                        commission.reject(data.error as string)
-                    }
-                    return true
-                }
-                case 'update-input-signals': {
                     if (data.success) {
                         commission.resolve(data)
                     } else if (commission.reject) {
@@ -274,10 +265,4 @@ export default class PyodideService extends GenericService implements PythonInte
         return response
     }
 
-    async updateInputSignals () {
-        await this.initialSetup
-        const commission = this._commissionWorker('update-input-signals')
-        const response = await commission.promise as UpdateInputSignalsResponse
-        return response
-    }
 }

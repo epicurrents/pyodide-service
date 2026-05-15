@@ -42,7 +42,6 @@ export class PyodideMontageWorker extends MontageWorker {
             ['setup-input-mutex', this.setupInputMutex],
             ['setup-montage', this.setupMontage],
             ['setup-worker', this.setupWorker],
-            ['update-input-signals', this.updateInputSignals],
         ])
     }
 
@@ -373,27 +372,6 @@ export class PyodideMontageWorker extends MontageWorker {
         }
         this._initialized = true
         return this._success(msgData)
-    }
-    /**
-     * Update the content of the python input signal arrays to match the shared array buffer content.
-     * @param msgData - Data part of the commission message.
-     * @returns True on success, false on failure.
-     */
-    async updateInputSignals (msgData: WorkerMessage['data']) {
-        if (!this._montage) {
-            // Montage may not be set up if the current modality does not support SAB/Pyodide.
-            return this._failure(msgData, 'Cannot update input signals in Pyodide worker, montage is not set up.')
-        }
-        const data = validateCommissionProps(msgData, {})
-        if (!data) {
-            return this._failure(msgData)
-        }
-        const updateInput = await this._montage?.updateInputSignals()
-        if (updateInput.success) {
-            return this._success(msgData)
-        } else {
-            return this._failure(msgData, updateInput.error)
-        }
     }
 }
 export default PyodideMontageWorker
