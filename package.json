@@ -1,73 +1,73 @@
 {
-    "name": "@epicurrents/pyodide-service",
-    "version": "0.1.0",
-    "description": "Epicurrents Pyodide service",
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
-    "exports": {
-        ".": {
-            "types": "./dist/index.d.ts",
-            "import": "./dist/index.js",
-            "default": "./dist/index.js"
-        },
-        "./components": "./dist/components/index.js",
-        "./types": "./dist/types/index.d.ts"
+  "name": "@epicurrents/pyodide-service",
+  "version": "0.1.0",
+  "description": "Epicurrents Pyodide service",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
-    "imports": {
-        "#*": "./dist/*"
-    },
-    "files": [
-        "dist/*",
-        "umd/*.js",
-        "umd/*.LICENSE.txt",
-        "LICENSE",
-        "README.md"
-    ],
-    "scripts": {
-        "build": "npm run build:umd && npm run build:tsc && npm run copy:scripts",
-        "build:docs": "npx typedoc",
-        "build:tsc": "tsc && tsconfig-replace-paths --project tsconfig.json",
-        "build:umd": "webpack --progress --stats-error-details --config webpack.config.js",
-        "copy:scripts": "node copy-scripts.js",
-        "dev": "webpack serve --progress --config webpack.dev.js",
-        "lint": "npm run lint:src",
-        "lint:src": "eslint src",
-        "prepack": "npm run build",
-        "release": "npm publish --access=public",
-        "serve": "webpack serve --progress --config webpack.dev.js",
-        "update:core": "cd node_modules/@epicurrents/core && git pull && npm i && npm run build:tsc",
-        "test": "npm run test:unit",
-        "test:unit": "vitest run --coverage"
-    },
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/epicurrents/pyodide-service.git"
-    },
-    "author": "Sampsa Lohi",
-    "license": "Apache-2.0",
-    "dependencies": {
-        "@epicurrents/core": "^0.3.0-2",
-        "asymmetric-io-mutex": "^0.9.0",
-        "pyodide": "0.25.0",
-        "scoped-event-log": "^3.0.0"
-    },
-    "devDependencies": {
-        "@microsoft/tsdoc": "^0.14.1",
-        "@typescript-eslint/eslint-plugin": "^6.7.2",
-        "@typescript-eslint/parser": "^6.7.2",
-        "circular-dependency-plugin": "^5.2.2",
-        "dotenv": "^16.3.1",
-        "eslint": "^8.49.0",
-        "isomorphic-fetch": "^3.0.0",
-        "ts-loader": "^9.3.0",
-        "tsconfig-replace-paths": "^0.0.14",
-        "typedoc": "^0.27.4",
-        "typedoc-plugin-missing-exports": "^3.1.0",
-        "typescript": "5.6",
-        "webpack": "^5.73.0",
-        "webpack-bundle-analyzer": "^4.5.0",
-        "webpack-cli": "^4.9.2",
-        "webpack-dev-server": "^5.2.2",
-        "webpack-merge": "^5.8.0"
-    }
+    "./components": "./dist/components/index.js",
+    "./types": "./dist/types/index.d.ts"
+  },
+  "imports": {
+    "#*": "./dist/*"
+  },
+  "files": [
+    "dist/*",
+    "umd/*.js",
+    "umd/*.LICENSE.txt",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "npm run build:umd && npm run build:tsc && npm run copy:scripts",
+    "build:docs": "npx typedoc",
+    "build:tsc": "tsc && tsconfig-replace-paths --project tsconfig.json",
+    "build:umd": "webpack --progress --stats-error-details --config webpack.config.js",
+    "copy:scripts": "node copy-scripts.js",
+    "dev": "webpack serve --progress --config webpack.dev.js",
+    "lint": "npm run lint:src",
+    "lint:src": "eslint src",
+    "prepack": "npm run build",
+    "release": "npm publish --access=public",
+    "serve": "webpack serve --progress --config webpack.dev.js",
+    "update:core": "cd node_modules/@epicurrents/core && git pull && npm i && npm run build:tsc",
+    "test": "npm run test:unit",
+    "test:unit": "vitest run --coverage"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/epicurrents/pyodide-service.git"
+  },
+  "author": "Sampsa Lohi",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@epicurrents/core": "^0.3.0-2",
+    "asymmetric-io-mutex": "^0.9.0",
+    "pyodide": "0.25.0",
+    "scoped-event-log": "^3.0.0"
+  },
+  "devDependencies": {
+    "@microsoft/tsdoc": "^0.14.1",
+    "@typescript-eslint/eslint-plugin": "^6.7.2",
+    "@typescript-eslint/parser": "^6.7.2",
+    "circular-dependency-plugin": "^5.2.2",
+    "dotenv": "^16.3.1",
+    "eslint": "^8.49.0",
+    "isomorphic-fetch": "^3.0.0",
+    "ts-loader": "^9.5.1",
+    "tsconfig-replace-paths": "^0.0.14",
+    "typedoc": "^0.27.4",
+    "typedoc-plugin-missing-exports": "^3.1.0",
+    "typescript": "^5.7.0",
+    "webpack": "^5.73.0",
+    "webpack-bundle-analyzer": "^4.5.0",
+    "webpack-cli": "^4.9.2",
+    "webpack-dev-server": "^5.2.2",
+    "webpack-merge": "^5.8.0"
+  }
 }
