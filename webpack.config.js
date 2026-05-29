@@ -14,7 +14,14 @@ module.exports = {
             {
                 test: /\.tsx?$/,
                 exclude: '/node_modules/',
-                use: 'ts-loader',
+                use: {
+                    loader: 'ts-loader',
+                    options: {
+                        // Suppress declaration-file emit during the webpack pass.
+                        // Full type-checking and .d.ts generation are handled by build:tsc.
+                        transpileOnly: true,
+                    },
+                },
             },
             {
                 test: /\.py$/,
@@ -44,6 +51,6 @@ module.exports = {
             '#workers': path.resolve(__dirname, 'src', 'workers'),
             'node-fetch': 'isomorphic-fetch',
         },
-        symlinks: false
+        symlinks: true
     },
 }
