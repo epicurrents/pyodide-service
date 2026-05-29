@@ -248,8 +248,10 @@ export class PyodideMontageWorker extends MontageWorker {
         const response = await this._runPythonCode(code, params, simDoc)
         if (response.error) {
             return this._failure(msgData, response.error)
-        } else {
+        } else if ('result' in response) {
             return this._success(msgData, { result: response.result })
+        } else {
+            return this._success(msgData, { result: response })
         }
     }
 

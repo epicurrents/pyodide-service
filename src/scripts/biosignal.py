@@ -456,6 +456,15 @@ def biosignal_set_buffers ():
     """
     try:
         from js import buffers
+        # Explicitly release old per-channel numpy arrays before replacing the list.
+        # Without this, large arrays from long recordings (up to ~30 MB/channel) linger
+        # until Python's GC runs, causing memory to grow with each opened recording.
+        if _biosignal['input'] is not None:
+            for i in range(len(_biosignal['input'])):
+                _biosignal['input'][i] = None
+        # Clear montage registry — channel indices are SAB-specific and invalid for the new recording.
+        _biosignal['available_montages'].clear()
+        _biosignal['montage'] = None
         _biosignal['buffers'] = buffers
         # Lazy per-channel allocation: each entry materialises on first access via
         # `_ensure_input_array`. Channels never touched by a compute step (e.g. a trend that

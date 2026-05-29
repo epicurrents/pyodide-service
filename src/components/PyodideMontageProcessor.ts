@@ -150,9 +150,20 @@ export default class PyodideMontageProcessor extends MontageProcessor implements
                 } else if (gapStart + gapLen <= 0) {
                     continue
                 }
-                // Apply a maximum of padded signal part length of gap.
                 const startPos = Math.max(gapStart, 0)
-                const endPos = Math.min(gapStart + gapLen, totalRange)
+                // When gapStart < 0 the gap straddles the filter-range start: its data-time
+                // position is before filterStart but its recording-time tail extends into the
+                // view.  Using the full gap duration would insert too many zeros (the pre-view
+                // portion of the gap has no corresponding position in the output signal).
+                // Clip the effective end to only the recording-time portion within the view.
+                let endPos: number
+                if (gapStart < 0) {
+                    const gapRecEnd = this._cacheTimeToRecordingTime(gap.start) + gap.duration
+                    const clippedSec = Math.max(0, Math.min(gapRecEnd - start, end - start))
+                    endPos = Math.min(Math.round(clippedSec * chan.samplingRate), totalRange)
+                } else {
+                    endPos = Math.min(gapStart + gapLen, totalRange)
+                }
                 if (filterLen) {
                     // Adjust data (=padding) starting and ending positions, if gap is withing filter padding range.
                     if (startPos >= 0 && startPos < filterLen) {
@@ -173,6 +184,8 @@ export default class PyodideMontageProcessor extends MontageProcessor implements
                 }
                 gapIdxs.push([startPos, endPos])
             }
+            // Total recording-time gap samples inserted into the output signal for this channel.
+            const totalGapSamples = gapIdxs.reduce((sum, gap) => sum + (gap[1] - gap[0]), 0)
             // Adjust start and end to cached signal range.
             const cacheStartPos = Math.round(inputRangeStart*chan.samplingRate)
             const relStart = dataStart - cacheStartPos
@@ -207,15 +220,15 @@ export default class PyodideMontageProcessor extends MontageProcessor implements
                 },
                 reference: [...chan.reference],
                 start: relStart,
-                trim_end: rangeEnd - rangeStart + trimStart,
+                // trim_end in recording-time: data-time range + filter-padding offset + inserted gap zeros.
+                trim_end: rangeEnd - rangeStart + trimStart + totalGapSamples,
                 trim_start: trimStart,
                 type: chan.modality,
             })
             montageChannels.push(sigProps)
             outputSignals.push(
-                // Set an appropariate size for the response signal.
-                // This will be used as an output buffer for the Python script to store the signals in.
-                new Float32Array(rangeEnd - rangeStart)
+                // Output buffer must fit the full recording-time signal (data + gap zeros).
+                new Float32Array(rangeEnd - rangeStart + totalGapSamples)
             )
         }
         const calculateSigs = await this._runCode(
