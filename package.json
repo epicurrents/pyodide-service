@@ -11,7 +11,9 @@
       "default": "./dist/index.js"
     },
     "./components": "./dist/components/index.js",
-    "./types": "./dist/types/index.d.ts"
+    "./types": "./dist/types/index.d.ts",
+    "./workers/*": "./umd/*",
+    "./umd/*": "./umd/*"
   },
   "imports": {
     "#*": "./dist/*"
