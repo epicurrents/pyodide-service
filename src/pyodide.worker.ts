@@ -15,8 +15,6 @@
 import type { WorkerMessage } from '@epicurrents/core/dist/types'
 import PyodideMontageWorker from '#workers/PyodideMontageWorker'
 
-importScripts("https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js")
-
 //const SCOPE = "pyodide.worker"
 
 const PYODIDE = new PyodideMontageWorker()
