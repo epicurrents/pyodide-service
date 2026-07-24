@@ -75,13 +75,31 @@ export async function loadPyodideRuntime (
     const { loadPyodide } = await import(/* webpackIgnore: true */ `${indexURL}pyodide.mjs`)
     const pyodide = (self as any).pyodide = await loadPyodide({ indexURL })
 
-    // numpy/scipy plus whatever the setup lists (matplotlib, mne, …) — all resolved
-    // from the distribution lock at indexURL.
-    const packages = ['numpy', 'scipy']
-    if (config?.packages?.length) {
-        packages.push(...config.packages)
+    // Package loading depends on whether the distribution is self-hosted.
+    //
+    // Self-hosted (config.indexURL set): this deployment's own pyodide-lock.json
+    // co-locates mne + its full dependency closure alongside numpy/scipy, so a
+    // single loadPackage resolves everything from the lock — offline, no PyPI.
+    //
+    // Upstream CDN (no config.indexURL — the DEFAULT_PYODIDE_INDEX_URL fallback):
+    // the official distribution lock carries numpy/scipy but NOT mne (un-bundled
+    // since 0.28). So load the distribution packages via loadPackage, then
+    // micropip-install the extras from PyPI. micropip transparently uses the dist
+    // lock for any extra that IS in it (e.g. matplotlib) and PyPI for the rest
+    // (mne + its deps), so it copes with a mixed list. This path needs the network
+    // — acceptable, since reaching the CDN already does; offline compute requires
+    // the self-hosted branch.
+    const extras = config?.packages ?? []
+    if (config?.indexURL) {
+        await pyodide.loadPackage(['numpy', 'scipy', ...extras])
+    } else {
+        await pyodide.loadPackage(['numpy', 'scipy'])
+        if (extras.length) {
+            await pyodide.loadPackage('micropip')
+            const micropip = pyodide.pyimport('micropip')
+            await micropip.install(extras)
+        }
     }
-    await pyodide.loadPackage(packages)
 }
 
 /**
