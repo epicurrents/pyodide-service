@@ -36,6 +36,7 @@ type DummyWindow = {
 }
 
 declare type Pyodide = {
+    globals: Map<string, string>
     loadPackage (packages: string | string[]): Promise<void>
     mountNativeFS (path: string, handle: FileSystemDirectoryHandle): Promise<void>
     runPythonAsync (code: string): Promise<string>
@@ -50,7 +51,7 @@ declare module '*?raw' {
     export default content
 }
 
-declare const loadPyodide: (params: unknown) => Promise<unknown>
+declare const loadPyodide: (params: unknown) => Promise<Pyodide>
 
 declare type RunPythonCode = (
     code: string,

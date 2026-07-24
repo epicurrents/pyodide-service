@@ -35,29 +35,53 @@ const SCOPE = 'pyodideWorkerBase'
 // ──────────────────────────────────────────────────────────────────────────
 
 /** Default upstream Pyodide location, used when no ``indexURL`` is configured. */
-export const DEFAULT_PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v0.25.0/full/'
+export const DEFAULT_PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.2/full/'
 
 /**
- * Load the Pyodide loader script, runtime, and the packages common to every
- * context, all from a single configured location.
+ * Load the Pyodide loader script, runtime, and packages, all from a single
+ * configured location.
  *
  * ``indexURL`` (the viewer's ``SETUP.pyodideAssetPath``) drives BOTH the loader
- * script and the runtime, so one path — and one pinned version — is the single
- * source of truth. ``importScripts`` is called here rather than at worker module
- * top-level because the config only arrives with the init message, and it is
- * legal at any time in a classic (iife) worker.
+ * (``pyodide.mjs``) and the runtime, so one path — and one pinned version — is the
+ * single source of truth. The loader is a dynamic ``import()`` (deferred to here,
+ * not module top-level, because the config only arrives with the init message);
+ * this is a ``type: 'module'`` worker, required by Pyodide ≥0.27/314.
+ *
+ * All packages load from the Pyodide **distribution** at ``indexURL`` via
+ * ``loadPackage`` — including mne. mne is un-bundled from upstream Pyodide since
+ * 0.28, so this deployment re-adds it to its *own* ``pyodide-lock.json`` (mne's
+ * wheel + pure-Python dependency closure co-located in the dist folder). Because
+ * the lock encodes dependencies, ``loadPackage`` resolves the whole tree from the
+ * folder offline — no micropip, no PyPI. See ``recordings``/deploy docs for the
+ * lock-extension build step.
  */
 export async function loadPyodideRuntime (
     config?: { indexURL?: string, packages?: string[] },
 ): Promise<void> {
-    const indexURL = config?.indexURL ?? DEFAULT_PYODIDE_INDEX_URL
-    importScripts(`${indexURL}pyodide.js`)
-    ;(self as any).pyodide = await loadPyodide({ indexURL })
+    // Resolve to an absolute, same-origin URL first: `import()` and Pyodide's own
+    // `new URL(indexURL)` both need an absolute base, and a root-relative configured
+    // path (e.g. /vendor/pyodide/…/) would otherwise throw. `self.location.origin`
+    // is the app origin even when the worker runs from a blob: URL.
+    const toAbsolute = (u: string) => new URL(u, self.location.origin).href
+    let indexURL = toAbsolute(config?.indexURL ?? DEFAULT_PYODIDE_INDEX_URL)
+    if (!indexURL.endsWith('/')) {
+        indexURL += '/'
+    }
+    // Pyodide ≥0.27/314 ships an ES module and dropped classic-worker support, so we
+    // dynamic-import pyodide.mjs (this is a `type: 'module'` worker — see the
+    // inlineWorker call in the setup). The `webpackIgnore` comment keeps webpack from
+    // trying to bundle/resolve the runtime URL — it must stay a native dynamic import
+    // of the vendored (or CDN) asset.
+    const { loadPyodide } = await import(/* webpackIgnore: true */ `${indexURL}pyodide.mjs`)
+    const pyodide = (self as any).pyodide = await loadPyodide({ indexURL })
+
+    // numpy/scipy plus whatever the setup lists (matplotlib, mne, …) — all resolved
+    // from the distribution lock at indexURL.
     const packages = ['numpy', 'scipy']
     if (config?.packages?.length) {
         packages.push(...config.packages)
     }
-    await (self as any).pyodide.loadPackage(packages)
+    await pyodide.loadPackage(packages)
 }
 
 /**
