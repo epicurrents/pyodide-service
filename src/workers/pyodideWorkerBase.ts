@@ -333,7 +333,20 @@ export function WithPyodide<TBase extends Constructor> (Base: TBase) {
             if (!data) {
                 return base._failure(msgData)
             }
-            await loadPyodideRuntime(data.config)
+            try {
+                await loadPyodideRuntime(data.config)
+            } catch (e: unknown) {
+                // The runtime load is a remote fetch (pyodide.mjs + packages). On failure, unblock
+                // any queued waiters so their awaiting run-code/load-packages commissions do not hang;
+                // _isInitialised stays false, so they then fail the not-initialised guard cleanly
+                // rather than running against a half-loaded runtime.
+                this._loadingDone = true
+                for (const resolve of this._loadWaiters) {
+                    resolve()
+                }
+                Log.error(`Loading the Pyodide runtime failed: ${(e as Error).message}.`, SCOPE)
+                return base._failure(msgData, (e as Error).message)
+            }
             this._loadingDone = true
             for (const resolve of this._loadWaiters) {
                 resolve()
