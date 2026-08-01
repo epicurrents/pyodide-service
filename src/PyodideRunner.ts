@@ -15,7 +15,7 @@ import {
     type PythonInterpreterService,
     type ScriptState,
 } from '#types'
-import { loadPyodide } from 'pyodide/pyodide.js'
+import type { PyodideAPI } from 'pyodide'
 import { Log } from 'scoped-event-log'
 
 import biosignal from './scripts/biosignal.py?raw'
@@ -29,7 +29,7 @@ const SCOPE = 'PyodideRunner'
 export default class PyodideRunner extends GenericService implements PythonInterpreterService {
     protected _loadPromise: Promise<boolean> | null
     protected _loadWaiters: ((result: boolean) => void)[] = []
-    protected _pyodide: Pyodide | null = null
+    protected _pyodide: PyodideAPI | null = null
     /**
      * Some scripts are run only once and kept in memory.
      * This property lists names of scripts that should not be run multiple times and their loading state.
@@ -59,10 +59,12 @@ export default class PyodideRunner extends GenericService implements PythonInter
     }
 
     async initialize (config?: { indexURL?: string, packages?: string[] }) {
-        // Load main Pyodide
-        this._pyodide = await loadPyodide({
-            indexURL: config?.indexURL || 'https://cdn.jsdelivr.net/pyodide/v314.0.2/full/',
-        })
+        const indexURL = config?.indexURL || 'https://cdn.jsdelivr.net/pyodide/v314.0.2/full/'
+        // Load Pyodide from the served / CDN distribution at runtime. The webpackIgnore hint keeps the
+        // ~200 kB loader (and its Node-only code paths) out of the bundle; the `pyodide` dependency is
+        // retained for its type exports only, imported above with `import type`.
+        const { loadPyodide } = await import(/* webpackIgnore: true */ `${indexURL}pyodide.mjs`) as typeof import('pyodide')
+        this._pyodide = await loadPyodide({ indexURL })
         // Load packages that are common to all contexts.
         await this._pyodide?.loadPackage(['numpy', 'scipy'].concat(...(config?.packages || [])))
         return true

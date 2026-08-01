@@ -8,7 +8,7 @@
 declare global {
     interface Window extends Omit<typeof Window, "document"> {}
     var document: DummyElement | undefined
-    const pyodide: Pyodide
+    const pyodide: import('pyodide').PyodideAPI
     const pyodideParams: { [key: string]: unknown }
     var window: DummyWindow | undefined
 }
@@ -35,23 +35,10 @@ type DummyWindow = {
     setTimeout: (..._params: unknown[]) => number
 }
 
-declare type Pyodide = {
-    globals: Map<string, string>
-    loadPackage (packages: string | string[]): Promise<void>
-    mountNativeFS (path: string, handle: FileSystemDirectoryHandle): Promise<void>
-    runPythonAsync (code: string): Promise<string>
-}
-
-declare module 'pyodide/pyodide.js' {
-    export function loadPyodide (config: { indexURL: string }): Promise<Pyodide>
-}
-
 declare module '*?raw' {
     const content: string
     export default content
 }
-
-declare const loadPyodide: (params: unknown) => Promise<Pyodide>
 
 declare type RunPythonCode = (
     code: string,
