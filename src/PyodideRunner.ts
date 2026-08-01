@@ -15,6 +15,7 @@ import {
     type PythonInterpreterService,
     type ScriptState,
 } from '#types'
+import { DEFAULT_PYODIDE_INDEX_URL } from './constants'
 import type { PyodideAPI } from 'pyodide'
 import { Log } from 'scoped-event-log'
 
@@ -59,7 +60,7 @@ export default class PyodideRunner extends GenericService implements PythonInter
     }
 
     async initialize (config?: { indexURL?: string, packages?: string[] }) {
-        const indexURL = config?.indexURL || 'https://cdn.jsdelivr.net/pyodide/v314.0.2/full/'
+        const indexURL = config?.indexURL || DEFAULT_PYODIDE_INDEX_URL
         // Load Pyodide from the served / CDN distribution at runtime. The webpackIgnore hint keeps the
         // ~200 kB loader (and its Node-only code paths) out of the bundle; the `pyodide` dependency is
         // retained for its type exports only, imported above with `import type`.

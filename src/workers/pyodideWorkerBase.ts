@@ -26,6 +26,7 @@
 import { validateCommissionProps } from '@epicurrents/core/dist/util'
 import type { WorkerMessage } from '@epicurrents/core/dist/types'
 import type { PythonWorkerCommission, RunCodeResult } from '#types'
+import { DEFAULT_PYODIDE_INDEX_URL } from '../constants'
 import { Log } from 'scoped-event-log'
 
 const SCOPE = 'pyodideWorkerBase'
@@ -33,9 +34,6 @@ const SCOPE = 'pyodideWorkerBase'
 // ──────────────────────────────────────────────────────────────────────────
 // `this`-free runtime helpers (worker global scope only).
 // ──────────────────────────────────────────────────────────────────────────
-
-/** Default upstream Pyodide location, used when no ``indexURL`` is configured. */
-export const DEFAULT_PYODIDE_INDEX_URL = 'https://cdn.jsdelivr.net/pyodide/v314.0.2/full/'
 
 /**
  * Load the Pyodide loader script, runtime, and packages, all from a single
