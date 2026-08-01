@@ -61,7 +61,7 @@ export default class PyodideRunner extends GenericService implements PythonInter
     async initialize (config?: { indexURL?: string, packages?: string[] }) {
         // Load main Pyodide
         this._pyodide = await loadPyodide({
-            indexURL: config?.indexURL || "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/",
+            indexURL: config?.indexURL || 'https://cdn.jsdelivr.net/pyodide/v314.0.2/full/',
         })
         // Load packages that are common to all contexts.
         await this._pyodide?.loadPackage(['numpy', 'scipy'].concat(...(config?.packages || [])))
