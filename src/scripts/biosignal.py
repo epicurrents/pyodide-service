@@ -110,6 +110,63 @@ def biosignal_add_montage ():
     _biosignal['available_montages'][name] = montage
     return { 'success': True }
 
+def _biosignal_insert_gaps (sig, gaps):
+    """
+    Insert zero-filled interruptions into `sig` at the positions given in `gaps`.
+
+    The positions are indices into the gap-free signal, so each insertion shifts every later one by
+    the length already inserted. Inserting at the raw position instead places every interruption
+    after the first too early, sliding signal content out from under the interruption it belongs to.
+
+    Parameters
+    ----------
+    sig : 1darray
+        The gap-free signal.
+    gaps : int[][]
+        Interruptions as [start index, end index] in gap-free signal coordinates.
+
+    Returns
+    -------
+    The signal with zeroes inserted, longer than the input by the total interruption length.
+    """
+    offset = 0
+    for gap in gaps:
+        length = gap[1] - gap[0]
+        if length <= 0:
+            continue
+        start = gap[0] + offset
+        sig = np.concatenate((sig[:start], np.zeros(length, dtype='f'), sig[start:]))
+        offset += length
+    return sig
+
+def _biosignal_remove_gaps (sig, gaps):
+    """
+    Remove the zeroes `_biosignal_insert_gaps` inserted, restoring the gap-free signal.
+
+    Walks the interruptions in reverse and unwinds the same offsets, so the spans removed are the
+    ones that were inserted rather than whatever content has since shifted into their raw positions.
+
+    Parameters
+    ----------
+    sig : 1darray
+        The signal with inserted interruptions.
+    gaps : int[][]
+        The same interruptions that were passed to `_biosignal_insert_gaps`.
+
+    Returns
+    -------
+    The signal without the inserted zeroes.
+    """
+    offset = sum(max(gap[1] - gap[0], 0) for gap in gaps)
+    for gap in reversed(gaps):
+        length = gap[1] - gap[0]
+        if length <= 0:
+            continue
+        offset -= length
+        start = gap[0] + offset
+        sig = np.delete(sig, np.s_[start:start + length])
+    return sig
+
 def biosignal_calculate_signals ():
     """
     Calculate signals from the global `input` using the given `signals` definitions.
@@ -160,14 +217,24 @@ def biosignal_calculate_signals ():
         # Remove possible filter paddings from start and end.
         if chan['filter_len'] > 0:
             sig = sig[chan['trim_start']:chan['trim_end']]
-        if len(sig) > len(output[idx]):
-            # Fit the signal part into available output buffer by removing extra elements from the end.
-            end_pos = -1*(len(sig) - len(output[idx]))
-            sig = sig[:end_pos]
-        elif len(sig) < len(output[idx]):
-            # This should not happen, but prevent execution error by padding the end with zeroes.
-            print('Warning: Calculated signal data was insufficient for output array length.')
-            np.pad(sig, (0, len(output[idx]) - len(sig)), 'constant')
+        out_len = len(output[idx])
+        if len(sig) != out_len:
+            # The caller sizes the output buffer from the same range and interruption geometry this
+            # script derives the signal from, so a disagreement means the two have drifted apart.
+            # Report the geometry that produced it — the lengths alone say nothing about which side
+            # is wrong — then fit the signal so the view still renders.
+            print(
+                'Warning: signal length ' + str(len(sig)) + ' does not match the output buffer '
+                'length ' + str(out_len) + ' for channel ' + str(idx) + ' (' + str(chan['type']) + '): '
+                'start=' + str(chan['start']) + ' end=' + str(chan['end']) + ' '
+                'filter_len=' + str(chan['filter_len']) + ' '
+                'trim_start=' + str(chan['trim_start']) + ' trim_end=' + str(chan['trim_end']) + ' '
+                'data_gaps=' + str(chan['data_gaps'])
+            )
+            if len(sig) > out_len:
+                sig = sig[:out_len]
+            else:
+                sig = np.pad(sig, (0, out_len - len(sig)), 'constant')
         # Filtering breaks contiguity, so make sure the result can be assigned.
         output[idx].assign(np.ascontiguousarray(sig, dtype='f'))
     return {
@@ -349,12 +416,7 @@ def biosignal_get_signals (channels):
         # Calculate the channel derivation.
         sig_act = np.pad(act[start_pos:end_pos], (pad_start, pad_end), 'constant')
         # Insert possible data gaps.
-        for gap in chan['data_gaps']:
-            sig_act = np.concatenate((
-                sig_act[:gap[0]],
-                np.zeros(gap[1] - gap[0], dtype='f'),
-                sig_act[gap[0]:]
-            ))
+        sig_act = _biosignal_insert_gaps(sig_act, chan['data_gaps'])
         # Use common reference if possible to save computation time.
         if chan['common_ref'] and chan['type'] in common_ref:
             sig_ref = common_ref[chan['type']]
@@ -379,12 +441,7 @@ def biosignal_get_signals (channels):
                 sig_ref = np.mean(ref_chans, axis=0)
             if len(chan['reference']) > 0:
                 # Insert possible data gaps.
-                for gap in chan['data_gaps']:
-                    sig_ref = np.concatenate((
-                        sig_ref[:gap[0]],
-                        np.zeros(gap[1] - gap[0], dtype='f'),
-                        sig_ref[gap[0]:]
-                    ))
+                sig_ref = _biosignal_insert_gaps(sig_ref, chan['data_gaps'])
             # Save this if montage uses common reference.
             if chan['common_ref']:
                 common_ref[chan['type']] = sig_ref
@@ -429,13 +486,8 @@ def biosignal_get_signals (channels):
             sig = signal.sosfiltfilt(filt_lp, sig)
         if filt_notch is not None:
             sig = signal.sosfiltfilt(filt_notch, sig)
-        # Remove data gaps in reverse order.
-        for gap in reversed(chan['data_gaps']):
-            gap_start = gap[0]
-            gap_end = gap[1]
-            if (gap_start == gap_end):
-                continue
-            sig = np.delete(sig, np.s_[gap_start:gap_end])
+        # Remove the inserted data gaps.
+        sig = _biosignal_remove_gaps(sig, chan['data_gaps'])
         signals[idx] = sig
     return signals
 

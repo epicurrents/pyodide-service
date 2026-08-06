@@ -184,8 +184,6 @@ export default class PyodideMontageProcessor extends MontageProcessor implements
                 }
                 gapIdxs.push([startPos, endPos])
             }
-            // Total recording-time gap samples inserted into the output signal for this channel.
-            const totalGapSamples = gapIdxs.reduce((sum, gap) => sum + (gap[1] - gap[0]), 0)
             // Adjust start and end to cached signal range.
             const cacheStartPos = Math.round(inputRangeStart*chan.samplingRate)
             const relStart = dataStart - cacheStartPos
@@ -220,15 +218,17 @@ export default class PyodideMontageProcessor extends MontageProcessor implements
                 },
                 reference: [...chan.reference],
                 start: relStart,
-                // trim_end in recording-time: data-time range + filter-padding offset + inserted gap zeros.
-                trim_end: rangeEnd - rangeStart + trimStart + totalGapSamples,
+                trim_end: rangeEnd - rangeStart + trimStart,
                 trim_start: trimStart,
                 type: chan.modality,
             })
             montageChannels.push(sigProps)
             outputSignals.push(
-                // Output buffer must fit the full recording-time signal (data + gap zeros).
-                new Float32Array(rangeEnd - rangeStart + totalGapSamples)
+                // Data-time extent, matching what the script returns: the zeroes it inserts for the
+                // interruptions exist only so the filter does not ring across a discontinuity, and
+                // are stripped again before the signal comes back. `MontageProcessor` in the core
+                // package serves the same range the same way, and the cache is fed by both.
+                new Float32Array(rangeEnd - rangeStart)
             )
         }
         const calculateSigs = await this._runCode(
