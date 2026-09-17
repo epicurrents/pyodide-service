@@ -12,7 +12,7 @@
 
 /* eslint-disable */
 
-import type { WorkerMessage } from '@epicurrents/core/dist/types'
+import type { WorkerMessage } from '@epicurrents/core/types'
 import PyodideMontageWorker from '#workers/PyodideMontageWorker'
 
 //const SCOPE = "pyodide.worker"

@@ -10,7 +10,7 @@ import {
     type SetupMutexResponse,
     type SetupWorkerResponse,
     type WorkerResponse,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 import { Log } from 'scoped-event-log'
 import { type MutexExportProperties } from 'asymmetric-io-mutex'
 

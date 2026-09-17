@@ -37,7 +37,6 @@
     "prepack": "npm run build",
     "release": "npm publish --access=public",
     "serve": "webpack serve --progress --config webpack.dev.js",
-    "update:core": "cd node_modules/@epicurrents/core && git pull && npm i && npm run build:tsc",
     "test": "npm run test:unit",
     "test:unit": "vitest run --coverage"
   },

@@ -23,8 +23,8 @@
  * kept as plain functions the mixin delegates to.
  */
 
-import { validateCommissionProps } from '@epicurrents/core/dist/util'
-import type { WorkerMessage } from '@epicurrents/core/dist/types'
+import { validateCommissionProps } from '@epicurrents/core/util'
+import type { WorkerMessage } from '@epicurrents/core/types'
 import type { PythonWorkerCommission, RunCodeResult } from '#types'
 import { DEFAULT_PYODIDE_INDEX_URL } from '../constants'
 import { Log } from 'scoped-event-log'

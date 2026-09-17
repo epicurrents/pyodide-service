@@ -5,12 +5,12 @@
  * @license    Apache-2.0
  */
 
-import { MontageProcessor } from '@epicurrents/core/dist/assets'
+import { MontageProcessor } from '@epicurrents/core/assets'
 import {
     shouldDisplayChannel,
     getFilterPadding,
     safeObjectFrom,
-} from '@epicurrents/core/dist/util'
+} from '@epicurrents/core/util'
 import {
     type BiosignalFilters,
     type CommonBiosignalSettings,
@@ -19,7 +19,7 @@ import {
     type MontageChannel,
     type SetupChannel,
     type SignalPart,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 import { Log } from 'scoped-event-log'
 import { PythonSignalDataReader } from '#types/biosignal'
 

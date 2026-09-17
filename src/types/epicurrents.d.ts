@@ -13,7 +13,7 @@ type EpicurrentsGlobal = {
     /**
      * Runtime state manager of the initiated application (must be initiated before creating resources).
      */
-    RUNTIME: import('@epicurrents/core/dist/types/application').StateManager
+    RUNTIME: import('@epicurrents/core/types').StateManager
 }
 type OpenDirectoryOptions = {
     /**

@@ -10,13 +10,13 @@
  * Source: https://github.com/pyodide/pyodide/
  */
 
-import { validateCommissionProps } from '@epicurrents/core/dist/util'
-import { MontageWorker } from '@epicurrents/core/dist/workers'
+import { validateCommissionProps } from '@epicurrents/core/util'
+import { MontageWorker } from '@epicurrents/core/workers'
 import type {
     CommonBiosignalSettings,
     MontageWorkerCommission,
     WorkerMessage,
-} from '@epicurrents/core/dist/types'
+} from '@epicurrents/core/types'
 import PyodideMontageProcesser from '#root/src/components/PyodideMontageProcessor'
 import type { PythonWorkerCommission } from '#types'
 import { WithPyodide } from '#workers/pyodideWorkerBase'

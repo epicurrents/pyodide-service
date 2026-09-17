@@ -10,7 +10,7 @@
  * Source: https://github.com/pyodide/pyodide/
  */
 
-import { BaseWorker } from '@epicurrents/core/dist/workers'
+import { BaseWorker } from '@epicurrents/core/workers'
 import { WithPyodide } from '#workers/pyodideWorkerBase'
 
 /**

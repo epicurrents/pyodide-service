@@ -5,7 +5,7 @@
  * @license    Apache-2.0
  */
 
-import { BiosignalFilters, SignalDataReader, SignalPart } from '@epicurrents/core/dist/types'
+import { BiosignalFilters, SignalDataReader, SignalPart } from '@epicurrents/core/types'
 
 /**
  * An object containing parameters for a Butterworth filter.

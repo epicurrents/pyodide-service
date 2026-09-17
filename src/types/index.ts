@@ -1,4 +1,4 @@
-import { AppSettings, AssetService, ConfigMapChannels, SafeObject, SetupChannel, WorkerMessage } from '@epicurrents/core/dist/types'
+import { AppSettings, AssetService, ConfigMapChannels, SafeObject, SetupChannel, WorkerMessage } from '@epicurrents/core/types'
 import {
     BiosignalFilterParams,
     BiosignalMontage,
