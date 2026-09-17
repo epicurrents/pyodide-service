@@ -40,6 +40,16 @@ declare module '*?raw' {
     export default content
 }
 
+/**
+ * Worker bundled and inlined by the build. The bundle is self-contained and carries its own copy of
+ * every dependency, so the constructed worker resolves nothing at run time except the Pyodide
+ * runtime it loads from the configured index URL.
+ */
+declare module '*?worker&inline' {
+    const InlinedWorker: new (options?: { name?: string }) => Worker
+    export default InlinedWorker
+}
+
 declare type RunPythonCode = (
     code: string,
     params: { [key: string]: unknown },

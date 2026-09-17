@@ -15,6 +15,7 @@ import { Log } from 'scoped-event-log'
 import { type MutexExportProperties } from 'asymmetric-io-mutex'
 
 import biosignal from './scripts/biosignal.py?raw'
+import InlinePyodideWorker from './pyodide.worker.ts?worker&inline'
 import {
     type PythonInterpreterService,
     type RunCodeResult,
@@ -40,14 +41,7 @@ export default class PyodideService extends GenericService implements PythonInte
             Log.error(`Reference to core application runtime was not found.`, SCOPE)
         }
         const overrideWorker = window.__EPICURRENTS__?.RUNTIME?.WORKERS.get('pyodide')
-        const worker = overrideWorker ? overrideWorker() : new Worker(
-            new URL(
-                /* webpackChunkName: 'pyodide.worker' */
-                `./pyodide.worker`,
-                import.meta.url
-            ),
-            { type: 'module' }
-        )
+        const worker = overrideWorker ? overrideWorker() : new InlinePyodideWorker()
         Log.registerWorker(worker)
         super(SCOPE, worker)
         worker.addEventListener('message', this.handleWorkerResponse.bind(this))

@@ -61,10 +61,10 @@ export default class PyodideRunner extends GenericService implements PythonInter
 
     async initialize (config?: { indexURL?: string, packages?: string[] }) {
         const indexURL = config?.indexURL || DEFAULT_PYODIDE_INDEX_URL
-        // Load Pyodide from the served / CDN distribution at runtime. The webpackIgnore hint keeps the
+        // Load Pyodide from the served / CDN distribution at runtime. The @vite-ignore hint keeps the
         // ~200 kB loader (and its Node-only code paths) out of the bundle; the `pyodide` dependency is
         // retained for its type exports only, imported above with `import type`.
-        const { loadPyodide } = await import(/* webpackIgnore: true */ `${indexURL}pyodide.mjs`) as typeof import('pyodide')
+        const { loadPyodide } = await import(/* @vite-ignore */ `${indexURL}pyodide.mjs`) as typeof import('pyodide')
         this._pyodide = await loadPyodide({ indexURL })
         // Load packages that are common to all contexts.
         await this._pyodide?.loadPackage(['numpy', 'scipy'].concat(...(config?.packages || [])))

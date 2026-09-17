@@ -67,10 +67,10 @@ export async function loadPyodideRuntime (
     }
     // Pyodide ≥0.27/314 ships an ES module and dropped classic-worker support, so we
     // dynamic-import pyodide.mjs (this is a `type: 'module'` worker — see the
-    // inlineWorker call in the setup). The `webpackIgnore` comment keeps webpack from
+    // inlineWorker call in the setup). The `@vite-ignore` comment keeps the bundler from
     // trying to bundle/resolve the runtime URL — it must stay a native dynamic import
     // of the vendored (or CDN) asset.
-    const { loadPyodide } = await import(/* webpackIgnore: true */ `${indexURL}pyodide.mjs`)
+    const { loadPyodide } = await import(/* @vite-ignore */ `${indexURL}pyodide.mjs`)
     const pyodide = (self as any).pyodide = await loadPyodide({ indexURL })
 
     // Package loading depends on whether the distribution is self-hosted.
