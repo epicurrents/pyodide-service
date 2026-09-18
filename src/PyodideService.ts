@@ -217,13 +217,12 @@ export default class PyodideService extends GenericService implements PythonInte
         recordingDuration: number,
         bufferStart = 0,
     ) {
-        if (this._scripts['biosignal'].state === 'error') {
-            Log.error(`Cannot set input mutex, biosignal script setup failed.`, SCOPE)
-            return { success: false }
-        }
-        if (this._scripts['biosignal'].state === 'not_loaded') {
-            Log.debug(`Loading biosignals scripts before setting up recording.`, SCOPE)
-            if (!(await this.loadDefaultScript('biosignal'))) {
+        // The Python-side global state must exist before the shared buffers are wired into it, and a
+        // service that has not run the script yet holds no entry for it at all.
+        if (this._scripts['biosignal']?.state !== 'loaded') {
+            Log.debug(`Loading biosignal script before setting up recording.`, SCOPE)
+            const loaded = await this.loadDefaultScript('biosignal')
+            if (!loaded.success) {
                 Log.error(`Cannot set input mutex, biosignal script setup failed.`, SCOPE)
                 return { success: false }
             }
