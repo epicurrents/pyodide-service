@@ -1,4 +1,18 @@
-import { AppSettings, AssetService, ConfigMapChannels, SafeObject, SetupChannel, WorkerMessage } from '@epicurrents/core/types'
+/**
+ * Pyodide service types.
+ * @package    epicurrents/pyodide-service
+ * @copyright  2024 Sampsa Lohi
+ * @license    Apache-2.0
+ */
+
+import {
+    AppSettings,
+    AssetService,
+    ConfigMapChannels,
+    SafeObject,
+    SetupChannel,
+    WorkerMessage,
+} from '@epicurrents/core/types'
 import {
     BiosignalFilterParams,
     BiosignalMontage,
@@ -13,6 +27,21 @@ export {
 }
 
 export type LoadPackagesResult = boolean
+
+/**
+ * Run a piece of Python in the interpreter this worker holds.
+ *
+ * A handle that can run code and nothing else, so what it is given to can reach the interpreter
+ * without reaching the worker that holds it.
+ * @param code - Python code as a string.
+ * @param params - Names to bind as Python globals for the duration of the call.
+ * @param simulateDocument - Stand up a dummy `window` and `document` for the call (default false), which matplotlib needs.
+ */
+export type RunPythonCode = (
+    code: string,
+    params: { [key: string]: unknown },
+    simulateDocument?: boolean
+) => Promise<RunCodeResult>
 
 export interface PythonInterpreterService extends Omit<
     AssetService,  'requestMemory' | 'setBufferRange' | 'setupMutex'
@@ -75,7 +104,7 @@ export type PythonWorkerCommission = {
     'run-code': WorkerMessage['data'] & {
         code: string
     }
-    'set-input-mutex': WorkerMessage['data'] & {
+    'setup-input-mutex': WorkerMessage['data'] & {
         bufferStart: number
         config: ConfigMapChannels
         dataDuration: number

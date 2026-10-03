@@ -53,7 +53,7 @@ def _ensure_input_array (channel_idx):
 
     `_biosignal['input']` starts as a list of `None`s after `biosignal_set_buffers`;
     each entry is materialised on first access here. Allocation is full-channel size
-    so existing absolute-index access in `biosignal_get_signals` keeps working unchanged.
+    because `biosignal_get_signals` indexes into it by absolute position.
     Unrefreshed positions hold zeros — refresh the relevant slice before reading.
     """
     arr = _biosignal['input'][channel_idx]
@@ -277,17 +277,17 @@ def biosignal_filter_signal (sig, fs, filters = None):
             if filters['lowpass'] is not None:
                 sos_lp = biosignal_get_filter_coefficients(
                     'lowpass',
-                    filters['highpass']['Wn'],
+                    filters['lowpass']['Wn'],
                     fs,
-                    filters['highpass']['N']
+                    filters['lowpass']['N']
                 )
                 sig = signal.sosfiltfilt(sos_lp, sig)
             if filters['notch'] is not None:
                 sos_notch = biosignal_get_filter_coefficients(
                     'notch',
-                    filters['highpass']['Wn'],
+                    filters['notch']['Wn'],
                     fs,
-                    filters['highpass']['N']
+                    filters['notch']['N']
                 )
                 sig = signal.sosfiltfilt(sos_notch, sig)
         return {
@@ -610,8 +610,10 @@ def biosignal_set_filter ():
     """
     try:
         from js import Wn, btype, N
-        if btype not in _biosignal['filters']:
-            return { 'success': False, 'error': "Uknown filter type '" + str(btype) + "'." }
+        # The filter dictionary also holds the default orders, which are not filter types: naming
+        # one here would replace an order with a filter and leave every later filter without one.
+        if btype not in ('highpass', 'lowpass', 'notch'):
+            return { 'success': False, 'error': "Unknown filter type '" + str(btype) + "'." }
         _biosignal['filters'][btype] = {
             'Wn': Wn,
             'N': N or None,

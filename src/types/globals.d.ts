@@ -1,39 +1,12 @@
 /**
- * Pyodide service types.
+ * Declarations for the Vite import forms this package uses. Everything else it declares is a
+ * module type in [index.ts](./index.ts): an ambient declaration is visible to every file whether it
+ * asked for it or not, and `skipLibCheck` keeps the compiler from reporting what is wrong inside
+ * one — a broken type here reaches its use sites as a silent `any`.
  * @package    epicurrents/pyodide-service
  * @copyright  2024 Sampsa Lohi
  * @license    Apache-2.0
  */
-
-declare global {
-    interface Window extends Omit<typeof Window, "document"> {}
-    var document: DummyElement | undefined
-    const pyodide: import('pyodide').PyodideAPI
-    const pyodideParams: { [key: string]: unknown }
-    var window: DummyWindow | undefined
-}
-
-/**
- * A "dummy" Elemement containing the minimum amount of mock properties to avoid errors in the Worker scope.
- */
-type DummyElement = {
-    id: string
-    style: { [key: string]: string }
-    appendChild: (..._params: unknown[]) => unknown
-    createElement: () => DummyElement
-    createTextNode: () => DummyElement
-    getContext: (..._params: unknown[]) => {
-        draw: () => unknown
-        putImageData: (..._params: unknown[]) => unknown
-    }
-    getElementById: (..._params: unknown[]) => () => DummyElement
-}
-/**
- * A "dummy" Window cotaining the minimum amount of mock properties to avoid errors in the Worker scope.
- */
-type DummyWindow = {
-    setTimeout: (..._params: unknown[]) => number
-}
 
 declare module '*?raw' {
     const content: string
@@ -49,9 +22,3 @@ declare module '*?worker&inline' {
     const InlinedWorker: new (options?: { name?: string }) => Worker
     export default InlinedWorker
 }
-
-declare type RunPythonCode = (
-    code: string,
-    params: { [key: string]: unknown },
-    simulateDocument?: boolean
-) => Promise<RunCodeResult>

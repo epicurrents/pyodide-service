@@ -94,11 +94,15 @@ const DEFAULT_SCRIPTS = new Map([['biosignal', biosignal]])
 
 `setInputMutex(input, dataDuration, recordingDuration, bufferStart)` loads the `biosignal` script through `loadDefaultScript` unless it is already `'loaded'`, before commissioning `'setup-input-mutex'`. This guarantees the Python-side global state exists before the SAB is wired into it — a service that has never run the script holds no `_scripts` entry at all, so the check has to tolerate an absent one.
 
-Only `'loading'` and `'loaded'` are ever assigned. `'not_loaded'` and `'error'` exist in the type but no code path sets them, so do not branch on them without making something produce them first.
+`'error'` is assigned when the run fails, and it is what makes a failed script retryable: the next `runScript` for that name runs it again, and a dependent waiting on it is refused with a reason rather than left waiting. `'not_loaded'` exists in the type and nothing assigns it — the absence of an entry is what means that. The state is the only record of the outcome, so a path that leaves it at `'loading'` wedges every dependent for the life of the session, and one that writes `'loaded'` regardless sends them to call definitions the interpreter does not have.
 
 `runCode(code, params, scriptDeps, transferList)` → `_commissionWorker('run-code', ...)` — for one-shot Python snippets that don't need persistent state.
 
+**Every public method resolves a result object, failures included.** `runCode`, `runScript`, `loadPackages`, `setInputMutex` and `setupWorker` each answer with `success` and, where there is one, a reason — a refused commission is translated, never propagated as a rejection. The reason is that the consumers read `success`: a rejection reaches them as an unhandled one with no error path of its own, and the commission can be rejected by the service as well as refused by the worker, since a worker-level error rejects everything in flight at once. The three commissions `handleWorkerResponse` intercepts are also released from the commission map there, because the base class only releases the ones it settles itself.
+
 `PyodideRunner` ([src/PyodideRunner.ts](src/PyodideRunner.ts)) implements the same `PythonInterpreterService` interface on the main thread instead of in a worker. Nothing selects it today: it is exported but unreferenced by the interface, the builder's setups and the profiles, and it cannot serve the SAB path — it has no `setInputMutex`, and `setupBiosignalRecording` returns `Not yet implemented`. Treat it as an unwired variant rather than a working fallback.
+
+It binds its parameters onto the window rather than onto a worker global, which is the same bridge with a larger blast radius: a name left behind shadows the window property that shares it, so the bindings are released in a `finally` exactly as the worker's are.
 
 ### Worker stack
 
@@ -131,20 +135,23 @@ This is a `type: 'module'` worker (required by Pyodide ≥0.27/314). `loadPyodid
 
 Actions are registered via `extendActionMap([...])` on top of the inherited `MontageWorker` map, so montage commissions added to the base worker in core are picked up here automatically. Trend commissions are not: they live in core's separate trend worker.
 
+**Two rules the replies have to follow.** A validation failure goes through the base class wrapper `_validate`, never through `validateCommissionProps` directly: the utility defaults to the global `postMessage`, which is the reply channel on a worker thread and the window anywhere a base redirects its transport, and a reply posted to the window settles nothing. And a commission this layer routes before the base class dispatcher — `setup-worker`, and the montage branch of it — is run through `_answer`, which reports a handler that throws; the base class guards the handlers in its own action map, and a commission nobody answers leaves the awaiting promise pending for the life of the session.
+
+**`shutdown` is exempt from the initialisation gate.** Every other commission is refused until the runtime has loaded, but the service terminates its worker only once the shutdown commission comes back successful, so refusing it leaves the thread and whatever it holds for the life of the page — and a worker whose runtime never loaded is exactly the one a caller wants to be rid of.
+
 **Initialisation** takes two commissions, not one. `setup-worker` loads the runtime and drains the load waiters; the processor is created later by `setup-montage`, or by a `setup-worker` message that carries a `montage` property, which `handlePythonMessage` reroutes.
 
 **Package resolution depends on `indexURL`**, which selects a strategy rather than only a location. Configured, the runtime loads `['numpy', 'scipy']` and every extra with `pyodide.loadPackage` from that distribution — the lock file encodes dependencies, so the tree resolves from that folder offline, with no micropip and no PyPI. Unconfigured, it falls back to the CDN for numpy and scipy and installs the extras through micropip from PyPI, which is what an un-bundled package such as mne requires.
 
 #### `runPythonCode(code, context, simulateDocument)` — the JS↔Python bridge
 
-1. Binds each `context` property onto `self` (the global JS scope), making them accessible as `from js import <name>` in Python (keys containing `__proto__` are rejected)
+1. Binds each `context` property onto the worker global, making them accessible as `from js import <name>` in Python (keys containing `__proto__` are rejected)
 2. Optionally stands up a dummy `window` / `document` when `simulateDocument` is set — only matplotlib needs it
 3. Calls `pyodide.runPython(code)`
-4. Tears down the document simulation
-5. Converts a Proxy result to JS and destroys the proxy, to avoid memory leaks
-6. Unbinds all context properties from `self`
+4. Converts a Proxy result to JS and destroys the proxy, to avoid memory leaks
+5. Releases the bindings and the simulated document in a `finally`, so the global scope is left as it was found whether the code returned or raised
 
-This is the central mechanism — every Python call from TypeScript goes through this bridge.
+This is the central mechanism — every Python call from TypeScript goes through this bridge. The global scope outlives the call, so step 5 is what keeps a run from leaving its arguments — the signal arrays of a montage derivation, in the heaviest case — alive for the session. The scope is reached through one typed declaration (`PyodideScope`) rather than a cast per site, because an `any` here propagates into every result the bridge returns.
 
 ### `biosignal.py` — signal processing global state
 

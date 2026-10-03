@@ -23,13 +23,52 @@
  * kept as plain functions the mixin delegates to.
  */
 
-import { validateCommissionProps } from '@epicurrents/core/util'
 import type { WorkerMessage } from '@epicurrents/core/types'
+import type { PyodideAPI } from 'pyodide'
 import type { PythonWorkerCommission, RunCodeResult } from '#types'
 import { DEFAULT_PYODIDE_INDEX_URL } from '../constants'
 import { Log } from 'scoped-event-log'
 
 const SCOPE = 'pyodideWorkerBase'
+
+/**
+ * The worker's global scope as this layer uses it: the interpreter the setup commission installs on
+ * it, and the arbitrary names a run binds onto it, which is how Pyodide's ``from js import x``
+ * reads a parameter. The index signature is what the binding needs; it is also why every access
+ * here goes through this one declaration rather than casting the global away at each site.
+ */
+interface PyodideScope {
+    pyodide: PyodideAPI
+    [name: string]: unknown
+}
+
+/** The worker global, typed as {@link PyodideScope}. */
+const scope = () => self as unknown as PyodideScope
+
+/**
+ * Names a commission may not bind onto the global scope. A binding is released after the call by
+ * deleting the name it was bound under, so a parameter called `pyodide` would replace the
+ * interpreter for the duration of the run and then delete it — leaving every later commission to
+ * fail on an interpreter that is no longer there.
+ */
+const RESERVED_NAMES = new Set(['pyodide'])
+
+/**
+ * A non-primitive Python result arrives as a proxy into the interpreter's heap: it has to be
+ * converted to plain data and then released, or the data behind it stays allocated.
+ */
+type PyodideProxy = {
+    destroy: () => void
+    toJs: (options: {
+        create_proxies: boolean
+        dict_converter: (entries: Iterable<[PropertyKey, unknown]>) => object
+    }) => unknown
+}
+
+/** The one micropip member this layer calls, which Pyodide hands over as an untyped module proxy. */
+type Micropip = {
+    install: (packages: string[]) => Promise<void>
+}
 
 // ──────────────────────────────────────────────────────────────────────────
 // `this`-free runtime helpers (worker global scope only).
@@ -39,13 +78,12 @@ const SCOPE = 'pyodideWorkerBase'
  * Load the Pyodide loader script, runtime, and packages, all from a single
  * configured location.
  *
- * ``indexURL`` (the viewer's ``SETUP.pyodideAssetPath``) drives BOTH the loader
- * (``pyodide.mjs``) and the runtime, so one path — and one pinned version — is the
- * single source of truth. The loader is a dynamic ``import()`` (deferred to here,
+ * ``indexURL`` drives BOTH the loader (``pyodide.mjs``) and the runtime, so one
+ * path — and one pinned version — is the single source of truth. The loader is a dynamic ``import()`` (deferred to here,
  * not module top-level, because the config only arrives with the init message);
  * this is a ``type: 'module'`` worker, required by Pyodide ≥0.27/314.
  *
- * All packages load from the Pyodide **distribution** at ``indexURL`` via
+ * All packages load from the Pyodide distribution at ``indexURL`` via
  * ``loadPackage`` — including mne. mne is un-bundled from upstream Pyodide since
  * 0.28, so this deployment re-adds it to its *own* ``pyodide-lock.json`` (mne's
  * wheel + pure-Python dependency closure co-located in the dist folder). Because
@@ -70,8 +108,8 @@ export async function loadPyodideRuntime (
     // inlineWorker call in the setup). The `@vite-ignore` comment keeps the bundler from
     // trying to bundle/resolve the runtime URL — it must stay a native dynamic import
     // of the vendored (or CDN) asset.
-    const { loadPyodide } = await import(/* @vite-ignore */ `${indexURL}pyodide.mjs`)
-    const pyodide = (self as any).pyodide = await loadPyodide({ indexURL })
+    const { loadPyodide } = await import(/* @vite-ignore */ `${indexURL}pyodide.mjs`) as typeof import('pyodide')
+    const pyodide = scope().pyodide = await loadPyodide({ indexURL })
 
     // Package loading depends on whether the distribution is self-hosted.
     //
@@ -94,7 +132,7 @@ export async function loadPyodideRuntime (
         await pyodide.loadPackage(['numpy', 'scipy'])
         if (extras.length) {
             await pyodide.loadPackage('micropip')
-            const micropip = pyodide.pyimport('micropip')
+            const micropip = pyodide.pyimport('micropip') as unknown as Micropip
             await micropip.install(extras)
         }
     }
@@ -102,8 +140,12 @@ export async function loadPyodideRuntime (
 
 /**
  * Run a Python snippet in the worker's Pyodide instance, binding ``context``
- * entries as globals for the duration of the call and cleaning them up after.
+ * entries as globals for the duration of the call and releasing them on every
+ * path out of it, the one where the code raises included — the global scope
+ * outlives the call, so a binding left behind outlives it too.
  *
+ * A name the worker itself depends on is refused rather than bound, because the
+ * release deletes the names it bound.
  * ``simulateDocument`` stands up a dummy ``window``/``document`` for matplotlib.
  * Pyodide proxies (returned for non-primitive results) are converted to plain
  * objects and destroyed to avoid memory leaks.
@@ -113,23 +155,31 @@ export async function runPythonCode (
     context: { [key: string]: unknown },
     simulateDocument = false,
 ): Promise<RunCodeResult> {
-    const unbindProps = () => {
-        // Unbind properties.
-        for (const key of Object.keys(context)) {
-            if (key.includes('__proto__')) {
-                continue
-            }
-            delete (self as any)[key]
+    const bound = [] as string[]
+    const release = () => {
+        // Unbind the properties that were bound, which is not every property given: a name that
+        // was refused is a name something else owns, and deleting it would take that instead.
+        for (const key of bound) {
+            delete scope()[key]
+        }
+        if (simulateDocument) {
+            delete scope().document
+            delete scope().window
         }
     }
     try {
         // Bind properties to allow pyodide access to them.
         for (const key of Object.keys(context)) {
             if (key.includes('__proto__')) {
-                Log.warn(`Code param ${key} contains insecure field '_proto__', parameter was ignored.`, SCOPE)
+                Log.warn(`Code param ${key} contains insecure field '__proto__', parameter was ignored.`, SCOPE)
                 continue
             }
-            (self as any)[key] = context[key]
+            if (RESERVED_NAMES.has(key)) {
+                Log.warn(`Code param ${key} is reserved by the worker, parameter was ignored.`, SCOPE)
+                continue
+            }
+            scope()[key] = context[key]
+            bound.push(key)
         }
         if (simulateDocument) {
             // Create some dummy object to pass as window and document (only needed for matplotlib).
@@ -146,44 +196,47 @@ export async function runPythonCode (
                     getElementById: (..._params: unknown[]) => { return createDummyEl() },
                 }
             }
-            ;(self as any).document = createDummyEl()
-            ;(self as any).window = {
+            scope().document = createDummyEl()
+            scope().window = {
                 setTimeout: (..._params: unknown[]) => { return 1 },
             }
         }
-        const runCode = (self as any).pyodide.runPython(code)
-        const result = await runCode
-        // Undo document simulation.
-        if (simulateDocument) {
-            ;(self as any).document = undefined
-            ;(self as any).window = undefined
-        }
+        const result = await (scope().pyodide.runPython(code) as unknown)
         // For more complex data types, Pyodide returns proxies which are prone to memory leaks.
         const resultIsProxy = !!result && typeof result === 'object'
         const response = resultIsProxy
                         // Convert Map (Pyodide's default conversion type for dict) into Object.
-                        // Setting create_proxies to false prevents the creation no nested proxies.
-                        ? result.toJs({ dict_converter : Object.fromEntries, create_proxies : false })
+                        // Setting create_proxies to false prevents the creation of nested proxies.
+                        ? (result as PyodideProxy).toJs({
+                            dict_converter: Object.fromEntries,
+                            create_proxies: false,
+                        })
                         : result
         if (resultIsProxy) {
             // Destroy the proxy to remove the reference to contained data.
-            result.destroy()
+            ;(result as PyodideProxy).destroy()
         }
-        unbindProps()
-        if (typeof response === 'object' && response.success !== undefined) {
+        if (response && typeof response === 'object' && 'success' in response) {
             // Return the complete response if it contains the success property.
-            return response
+            return response as RunCodeResult
         }
         return {
             success: true,
             result: response,
         }
     } catch (error) {
-        unbindProps()
+        // The reason is carried as a string, which is what the reply type declares and what the
+        // consumer formats. A Pyodide error object posted in its place survives the clone and then
+        // reads as an empty message wherever it is interpolated.
         return {
             success: false,
-            error: error as string,
+            error: error instanceof Error ? error.message : String(error),
         }
+    } finally {
+        // The bindings and the simulated document live on the worker's global scope, which outlives
+        // the call, so releasing them belongs on every path out of it. Code that raises is the path
+        // that matters: it is also the one that leaves the largest arrays behind.
+        release()
     }
 }
 
@@ -206,6 +259,9 @@ type Constructor<T = object> = abstract new (...args: any[]) => T
 interface WorkerHelpers {
     _success (msgData: WorkerMessage['data'], data?: object): boolean
     _failure (msgData: WorkerMessage['data'], reason?: string): boolean
+    _validate <T extends WorkerMessage['data']> (
+        data: T, requiredProps: { [name: string]: string | string[] }, requiredSetup?: boolean
+    ): false | T
     handleMessage (message: WorkerMessage): Promise<boolean>
 }
 
@@ -239,6 +295,29 @@ export function WithPyodide<TBase extends Constructor> (Base: TBase) {
             simulateDocument = false,
         ): Promise<RunCodeResult> => runPythonCode(code, context, simulateDocument)
 
+        /**
+         * Run a handler this layer routes itself, answering the commission if it throws.
+         *
+         * The base class guards every handler in its action map, because a commission nobody
+         * answers leaves the awaiting promise pending for the life of the session. The actions
+         * routed here are reached before that guard, so they carry their own.
+         * @param message - The message being handled.
+         * @param handler - The handler to run for it.
+         */
+        async _answer (message: WorkerMessage, handler: () => Promise<boolean>) {
+            const base = this as unknown as WorkerHelpers
+            try {
+                return await handler()
+            } catch (e: unknown) {
+                const reason = e instanceof Error ? e.message : String(e)
+                Log.error(`Action '${message.data.action}' threw in the worker: ${reason}`, SCOPE)
+                return base._failure(
+                    message.data,
+                    `Action '${message.data.action}' failed in the worker: ${reason}`
+                )
+            }
+        }
+
         /** Route a Python commission; setup must precede everything else. */
         async handlePythonMessage (message: WorkerMessage): Promise<boolean> {
             const base = this as unknown as WorkerHelpers
@@ -246,13 +325,20 @@ export function WithPyodide<TBase extends Constructor> (Base: TBase) {
                 return base._failure(message.data || {}, `Worker commission did not contain data or an action.`)
             }
             if (message.data.action === 'setup-worker') {
-                return this.setupWorker(message.data)
+                return this._answer(message, () => this.setupWorker(message.data))
             }
-            if (!this._isInitialised) {
+            if (!this._isInitialised && message.data.action !== 'shutdown') {
                 return base._failure(
                     message.data,
                     'Pyodide must be initialized before any other commissions are issued.'
                 )
+            }
+            if (!this._isInitialised) {
+                // Shutting down is the one commission that must not require the interpreter. The
+                // service terminates the worker only once this one comes back successful, so
+                // refusing it leaves the thread running for the life of the page — and a worker
+                // whose runtime never loaded is exactly the one a caller wants to be rid of.
+                return base.handleMessage(message)
             }
             await this._awaitLoad()
             return base.handleMessage(message)
@@ -260,7 +346,7 @@ export function WithPyodide<TBase extends Constructor> (Base: TBase) {
 
         async loadPackages (msgData: WorkerMessage['data']) {
             const base = this as unknown as WorkerHelpers
-            const data = validateCommissionProps(
+            const data = base._validate(
                 msgData as PythonWorkerCommission['load-packages'],
                 {
                     packages: 'Array',
@@ -269,20 +355,20 @@ export function WithPyodide<TBase extends Constructor> (Base: TBase) {
             if (!data) {
                 return base._failure(msgData)
             }
-            if (!data.packages) {
-                return base._failure(msgData, 'Load-packages requires a non-empty array of packages to load.')
+            if (!data.packages.length) {
+                return base._failure(msgData, `'load-packages' requires a non-empty array of packages to load.`)
             }
             try {
-                await (self as any).pyodide.loadPackage(msgData.packages)
+                await scope().pyodide.loadPackage(data.packages)
                 return base._success(msgData)
             } catch (error) {
-                return base._failure(msgData, error as string)
+                return base._failure(msgData, (error as Error)?.message ?? String(error))
             }
         }
 
         async runCode (msgData: WorkerMessage['data']) {
             const base = this as unknown as WorkerHelpers
-            const data = validateCommissionProps(
+            const data = base._validate(
                 msgData as PythonWorkerCommission['run-code'],
                 {
                     code: 'String',
@@ -322,7 +408,7 @@ export function WithPyodide<TBase extends Constructor> (Base: TBase) {
          */
         async setupWorker (msgData: WorkerMessage['data']) {
             const base = this as unknown as WorkerHelpers
-            const data = validateCommissionProps(
+            const data = base._validate(
                 msgData as PythonWorkerCommission['setup-worker'],
                 {
                     config: 'Object?',

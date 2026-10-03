@@ -19,7 +19,7 @@ export type BiosignalFilterParams = {
     btype: 'bandpass' | 'bandstop' | 'highpass' | 'lowpass'
     /** Filter order, an integer usually in the range of 3-9. */
     N: number
-    /** 
+    /**
      * Critical frequency of the filter as:
      * - pair of floats for `bandpass` ( [low, high] )
      * - a single float for the rest.
@@ -47,7 +47,7 @@ export type BiosignalMontage = {
 export type BiosignalMontageChannel = {
     /** Index of the active channel in the `input` array. */
     active: number
-    /** 
+    /**
      * Indices of reference channels in the `input` array.
      * A mean of channel values is used as a reference.
      * @remarks

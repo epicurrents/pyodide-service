@@ -5,7 +5,6 @@
  * @license    Apache-2.0
  */
 
-/* eslint-disable */
 type OpenDirectoryOptions = {
     /**
      * By specifying an ID, the browser can remember different directories for different IDs. If the same ID is used

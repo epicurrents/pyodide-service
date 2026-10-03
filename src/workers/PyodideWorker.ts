@@ -21,12 +21,16 @@ import { WithPyodide } from '#workers/pyodideWorkerBase'
 export class PyodideWorker extends WithPyodide(BaseWorker) {
     constructor () {
         super()
-        // Register the Python commissions handled by the shared layer.
+        // Register the Python commissions handled by the shared layer. The handlers are
+        // registered unbound, as every worker in the family registers them: the base class binds
+        // the one it is about to call.
+        /* eslint-disable @typescript-eslint/unbound-method */
         this.extendActionMap([
             ['load-packages', this.loadPackages],
             ['run-code', this.runCode],
             ['setup-worker', this.setupWorker],
         ])
+        /* eslint-enable @typescript-eslint/unbound-method */
     }
 }
 export default PyodideWorker

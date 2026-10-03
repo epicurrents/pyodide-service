@@ -10,23 +10,22 @@
  * Source: https://github.com/pyodide/pyodide/
  */
 
-import { validateCommissionProps } from '@epicurrents/core/util'
 import { MontageWorker } from '@epicurrents/core/workers'
 import type {
     CommonBiosignalSettings,
     MontageWorkerCommission,
     WorkerMessage,
 } from '@epicurrents/core/types'
-import PyodideMontageProcesser from '#root/src/components/PyodideMontageProcessor'
+import PyodideMontageProcessor from '#components/PyodideMontageProcessor'
 import type { PythonWorkerCommission } from '#types'
 import { WithPyodide } from '#workers/pyodideWorkerBase'
 import { Log } from 'scoped-event-log'
 
-const SCOPE = "PyodideMontageWorker"
+const SCOPE = 'PyodideMontageWorker'
 
 export class PyodideMontageWorker extends WithPyodide(MontageWorker) {
     // Montage-specific state; the Pyodide loading state lives in WithPyodide.
-    protected _montage = null as PyodideMontageProcesser | null
+    protected _montage = null as PyodideMontageProcessor | null
     protected _namespace = ''
     protected _settings = null as CommonBiosignalSettings | null
     constructor () {
@@ -34,6 +33,11 @@ export class PyodideMontageWorker extends WithPyodide(MontageWorker) {
         // Extend action map with Python commissions.
         // We also need to remap any super class actions to methods redefined in this class.
         // load-packages / run-code / setup-worker are handled by the shared WithPyodide layer.
+        //
+        // The handlers are registered unbound, as every worker in the family registers them: the
+        // base class binds the one it is about to call, so an entry here is a reference to a method
+        // rather than a callable of its own.
+        /* eslint-disable @typescript-eslint/unbound-method */
         this.extendActionMap([
             ['get-signals', this.getSignals],
             ['load-packages', this.loadPackages],
@@ -43,6 +47,7 @@ export class PyodideMontageWorker extends WithPyodide(MontageWorker) {
             ['setup-montage', this.setupMontage],
             ['setup-worker', this.setupWorker],
         ])
+        /* eslint-enable @typescript-eslint/unbound-method */
     }
 
     async clearMontage (msgData?: WorkerMessage['data']) {
@@ -54,8 +59,8 @@ export class PyodideMontageWorker extends WithPyodide(MontageWorker) {
         }
     }
 
-    async getSignals(msgData: WorkerMessage['data']): Promise<boolean> {
-        const data = validateCommissionProps(
+    async getSignals (msgData: WorkerMessage['data']): Promise<boolean> {
+        const data = this._validate(
             msgData as MontageWorkerCommission['get-signals'],
             {
                 range: ['Number', 'Number'],
@@ -85,13 +90,13 @@ export class PyodideMontageWorker extends WithPyodide(MontageWorker) {
      */
     async handlePythonMessage (message: WorkerMessage): Promise<boolean> {
         if (message?.data?.action === 'setup-worker' && message.data.montage) {
-            return this.setupMontage(message.data)
+            return this._answer(message, () => this.setupMontage(message.data))
         }
         return super.handlePythonMessage(message)
     }
 
     async setFilters (msgData: WorkerMessage['data']) {
-        const data = validateCommissionProps(
+        const data = this._validate(
             msgData as MontageWorkerCommission['set-filters'],
             {
                 name: 'String',
@@ -120,8 +125,8 @@ export class PyodideMontageWorker extends WithPyodide(MontageWorker) {
     }
 
     async setupInputMutex (msgData: WorkerMessage['data']) {
-        const data = validateCommissionProps(
-            msgData as PythonWorkerCommission['set-input-mutex'],
+        const data = this._validate(
+            msgData as PythonWorkerCommission['setup-input-mutex'],
             {
                 bufferStart: 'Number',
                 config: 'Object',
@@ -158,15 +163,17 @@ export class PyodideMontageWorker extends WithPyodide(MontageWorker) {
                     cacheProperties: cacheSetup,
                 })
             } else {
-                return this._failure(msgData, `Setting input buffers in Pyodide montege processer failed.`)
+                return this._failure(msgData, `Setting the input buffers in the Pyodide processor failed.`)
             }
         } else {
-            return this._failure(msgData, `Setting up mutex in the Pyodide montage processer failed.`)
+            return this._failure(msgData, `Setting up the mutex in the Pyodide montage processor failed.`)
         }
     }
 
+    // The signature is the action map's; setting up a montage awaits nothing.
+    // eslint-disable-next-line @typescript-eslint/require-await
     async setupMontage (msgData: WorkerMessage['data']) {
-        const data = validateCommissionProps(
+        const data = this._validate(
             msgData as PythonWorkerCommission['setup-montage'],
             {
                 config: 'Object',
@@ -184,9 +191,9 @@ export class PyodideMontageWorker extends WithPyodide(MontageWorker) {
             this._settings = data.settings.modules[data.namespace] as unknown as CommonBiosignalSettings
         }
         if (!this._montage) {
-            // Create new montage processer.
-            Log.debug(`Creating a new processer for montage ${data.montage}.`, SCOPE)
-            this._montage = new PyodideMontageProcesser(this._runPythonCode, this._settings)
+            // Create new montage processor.
+            Log.debug(`Creating a new processor for montage ${data.montage}.`, SCOPE)
+            this._montage = new PyodideMontageProcessor(this._runPythonCode, this._settings)
         }
         this._montage.setupChannels(data.montage, data.config, data.setupChannels)
         return this._success(msgData)

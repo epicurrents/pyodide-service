@@ -1,5 +1,5 @@
 /**
- * Pyodide montage processer.
+ * Pyodide montage processor.
  * @package    epicurrents/pyodide-service
  * @copyright  2024 Sampsa Lohi
  * @license    Apache-2.0
@@ -21,9 +21,10 @@ import {
     type SignalPart,
 } from '@epicurrents/core/types'
 import { Log } from 'scoped-event-log'
+import { type RunPythonCode } from '#types'
 import { PythonSignalDataReader } from '#types/biosignal'
 
-const SCOPE = "PyodideMontageProcesser"
+const SCOPE = 'PyodideMontageProcessor'
 
 export default class PyodideMontageProcessor extends MontageProcessor implements PythonSignalDataReader {
     protected _activeMontage = ''
@@ -57,7 +58,7 @@ export default class PyodideMontageProcessor extends MontageProcessor implements
     ) {
         // Check that cache is ready.
         if (!this._mutex) {
-            Log.error("Cannot return signal part, signal cache has not been set up yet.", SCOPE)
+            Log.error(`Cannot return signal part, signal cache has not been set up yet.`, SCOPE)
             return false
         }
         const cacheStart = this._recordingTimeToCacheTime(Math.max(0, start))
@@ -70,7 +71,7 @@ export default class PyodideMontageProcessor extends MontageProcessor implements
             inputRangeEnd === null || (cacheEnd > inputRangeEnd && inputRangeEnd < this._totalDataLength)
         ) {
             // TODO: Signal that the required part must be loaded by the file loader first.
-            Log.error("Cannot return signal part, requested raw signals have not been loaded yet.", SCOPE)
+            Log.error(`Cannot return signal part, requested raw signals have not been loaded yet.`, SCOPE)
             return false
         }
         const montageChannels = [] as SignalPart[]
@@ -153,7 +154,7 @@ export default class PyodideMontageProcessor extends MontageProcessor implements
                 const startPos = Math.max(gapStart, 0)
                 // When gapStart < 0 the gap straddles the filter-range start: its data-time
                 // position is before filterStart but its recording-time tail extends into the
-                // view.  Using the full gap duration would insert too many zeros (the pre-view
+                // view. Using the full gap duration would insert too many zeros (the pre-view
                 // portion of the gap has no corresponding position in the output signal).
                 // Clip the effective end to only the recording-time portion within the view.
                 let endPos: number
@@ -233,14 +234,16 @@ export default class PyodideMontageProcessor extends MontageProcessor implements
         }
         const calculateSigs = await this._runCode(
             `biosignal_calculate_signals()`,
+            // The parameters reach Python through the global scope, so they are passed as an object
+            // with no prototype: a name taken from `__proto__` would otherwise be bound as well.
             safeObjectFrom({
                 channels: montageChannels,
                 output: outputSignals,
-            })
+            }) as { [key: string]: unknown }
         )
         if (!calculateSigs.success) {
             Log.error(
-                [`Calcualting signals in the Pyodide worker failed.`, calculateSigs.error].flat(),
+                [`Calculating signals in the Pyodide worker failed.`, ...[calculateSigs.error ?? []].flat()],
                 SCOPE
             )
             return false
@@ -316,18 +319,18 @@ export default class PyodideMontageProcessor extends MontageProcessor implements
             `biosignal_set_default_filters()`,
             safeObjectFrom({
                 filters: params,
-            })
+            }) as { [key: string]: unknown }
         )
         if (!result.success) {
             Log.error(
-                [`Setting default filters in Pyodide worker failed.`, result.error].flat(),
+                [`Setting default filters in Pyodide worker failed.`, ...[result.error ?? []].flat()],
                 SCOPE
             )
         }
         return result
     }
     /**
-     * Set the given `montage` as active in the processer.
+     * Set the given `montage` as active in the processor.
      * @param montage - Name of the montage.
      * @returns True on success, false if montage cannot be found.
      */
@@ -343,10 +346,10 @@ export default class PyodideMontageProcessor extends MontageProcessor implements
         }
         return false
     }
-    setupChannels(montage: string, config: ConfigMapChannels, setupChannels: SetupChannel[]): void {
+    setupChannels (montage: string, config: ConfigMapChannels, setupChannels: SetupChannel[]): void {
         super.setupChannels(montage, config, setupChannels)
         this._montages.set(montage, [...this._channels])
         this._activeMontage = montage
     }
 }
-export { PyodideMontageProcessor}
+export { PyodideMontageProcessor }

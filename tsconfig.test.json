@@ -1,0 +1,15 @@
+{
+    // The suite is type-checked as a step of `npm test`, ahead of the unit run. Both halves of the
+    // service are constructed for real; only the Pyodide runtime is replaced, through a double the
+    // tests hand over, so this is what catches that double drifting from the interpreter surface
+    // the worker actually uses.
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "noEmit": true,
+        "rootDir": ".",
+        "types": ["node"],
+        "typeRoots": ["../../node_modules/@types", "./node_modules/@types"]
+    },
+    "include": ["./tests/**/*", "./src/**/*"],
+    "exclude": ["node_modules", "dist"]
+}
