@@ -2,6 +2,16 @@
   "name": "@epicurrents/pyodide-service",
   "version": "0.1.0",
   "description": "Epicurrents Pyodide service",
+  "keywords": [
+    "pyodide",
+    "python",
+    "epicurrents",
+    "typescript"
+  ],
+  "homepage": "https://github.com/epicurrents/pyodide-service#readme",
+  "bugs": {
+    "url": "https://github.com/epicurrents/pyodide-service/issues"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
