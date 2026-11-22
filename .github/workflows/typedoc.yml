@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-      - run: npm ci
+      - run: npm install
       # Generate your TypeDoc documentation
       - run: npx typedoc
       # https://github.com/actions/upload-pages-artifact
